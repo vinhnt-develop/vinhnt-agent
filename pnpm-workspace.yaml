@@ -1,0 +1,29 @@
+allowBuilds:
+  '@parcel/watcher': true
+  '@scarf/scarf': true
+  '@swc/core': true
+  bcrypt: false
+  better-sqlite3: true
+  esbuild: false
+  msgpackr-extract: true
+  unrs-resolver: false
+
+minimumReleaseAgeExclude:
+  - '@vinhnt-sdk/config@0.1.5'
+  - '@vinhnt-sdk/core@0.1.6 || 0.2.0'
+  - '@vinhnt-sdk/llm@0.1.5'
+  - '@vinhnt-sdk/schema@0.2.0 || 0.2.1'
+  - '@vinhnt-sdk/session@0.2.0'
+  - '@vinhnt-sdk/step-executor@0.1.6'
+  - '@vinhnt-sdk/mcp@0.2.0'
+  - '@vinhnt-sdk/tools@0.2.0'
+
+overrides:
+  '@vinhnt-sdk/llm': '0.1.5'
+  '@vinhnt-sdk/tools': '0.2.0'
+  '@vinhnt-sdk/schema': '0.2.1'
+  '@vinhnt-sdk/session': '0.2.0'
+  '@vinhnt-sdk/step-executor': '0.1.6'
+  '@vinhnt-sdk/permission': '0.1.3'
+  '@vinhnt-sdk/security': '0.1.3'
+  '@vinhnt-sdk/event': '0.1.3'
