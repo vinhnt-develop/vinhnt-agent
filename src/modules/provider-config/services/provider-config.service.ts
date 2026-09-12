@@ -21,6 +21,10 @@ export class ProviderConfigService {
     return this.repository.findByProvider(provider);
   }
 
+  async findSingleByProvider(provider: string) {
+    return this.repository.findSingleByProvider(provider);
+  }
+
   async findById(id: string) {
     const config = await this.repository.findById(id);
     if (!config) {
@@ -34,7 +38,6 @@ export class ProviderConfigService {
     name: string;
     apiKey?: string;
     baseUrl?: string;
-    defaultModel?: string;
     configs?: Record<string, unknown>;
     pricing?: Record<string, unknown>;
     isDefault?: boolean;
@@ -42,11 +45,22 @@ export class ProviderConfigService {
     return this.repository.create(data);
   }
 
+  async upsertByProvider(data: {
+    provider: string;
+    name: string;
+    apiKey?: string;
+    baseUrl?: string;
+    configs?: Record<string, unknown>;
+    pricing?: Record<string, unknown>;
+    isActive?: boolean;
+  }) {
+    return this.repository.upsertByProvider(data);
+  }
+
   async update(id: string, data: {
     name?: string;
     apiKey?: string;
     baseUrl?: string;
-    defaultModel?: string;
     configs?: Record<string, unknown>;
     pricing?: Record<string, unknown>;
     isActive?: boolean;

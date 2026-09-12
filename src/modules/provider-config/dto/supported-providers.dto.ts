@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Expose, Transform } from 'class-transformer';
+import { Expose, Transform, Type } from 'class-transformer';
 
 export class ProviderCapabilitiesDto {
   @ApiPropertyOptional() vision?: boolean;
@@ -83,4 +83,27 @@ export class ProviderModelDto {
   @Expose()
   @ApiPropertyOptional()
   deprecationDate?: string;
+}
+
+export class ProviderModelsGroupDto {
+  @Expose()
+  @ApiProperty()
+  provider: string;
+
+  @Expose()
+  @ApiProperty()
+  providerName: string;
+
+  @Expose()
+  @ApiProperty()
+  configured: boolean;
+
+  @Expose()
+  @ApiProperty({ type: [ProviderModelDto] })
+  @Type(() => ProviderModelDto)
+  models: ProviderModelDto[];
+
+  @Expose()
+  @ApiPropertyOptional()
+  error?: string;
 }

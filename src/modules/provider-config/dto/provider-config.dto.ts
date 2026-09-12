@@ -23,11 +23,6 @@ export class CreateProviderConfigDto {
   @IsString()
   baseUrl?: string;
 
-  @ApiPropertyOptional({ description: 'Default model ID' })
-  @IsOptional()
-  @IsString()
-  defaultModel?: string;
-
   @ApiPropertyOptional({ description: 'Additional config' })
   @IsOptional()
   @IsObject()
@@ -60,11 +55,6 @@ export class UpdateProviderConfigDto {
   @IsString()
   baseUrl?: string;
 
-  @ApiPropertyOptional({ description: 'Default model ID' })
-  @IsOptional()
-  @IsString()
-  defaultModel?: string;
-
   @ApiPropertyOptional({ description: 'Additional config' })
   @IsOptional()
   @IsObject()
@@ -90,9 +80,7 @@ export class ProviderConfigResponseDto {
   @Expose() id!: string;
   @Expose() provider!: string;
   @Expose() name?: string;
-  @Expose() apiKey?: string;
   @Expose() baseUrl?: string;
-  @Expose() defaultModel?: string;
   @Expose() configs?: Record<string, unknown>;
   @Expose() pricing?: Record<string, unknown>;
   @Expose() isActive?: boolean;

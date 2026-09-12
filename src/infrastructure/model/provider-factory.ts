@@ -19,7 +19,6 @@ export interface ProviderConfig {
   provider: string;
   baseUrl: string;
   apiKey?: string;
-  defaultModel?: string;
   defaultMaxTokens?: number;
   temperature?: number;
   contextLimit?: number;
@@ -96,7 +95,6 @@ export class ProviderFactory {
         provider: config.provider,
         baseUrl: config.baseUrl || '',
         apiKey: config.apiKey || '',
-        defaultModel: config.defaultModel || '',
         pricing: config.pricing || undefined,
       };
     } catch (error) {
@@ -140,7 +138,6 @@ export class ProviderFactory {
     const opts: OpenAICompatibleProviderOptions = {
       baseUrl: config.baseUrl,
       apiKey: config.apiKey || '',
-      defaultModel: config.defaultModel || '',
       providerName: config.provider,
       timeoutMs: 120_000,
       retry: { maxRetries: 3, baseBackoffMs: 1000, maxBackoffMs: 30_000 },
@@ -186,7 +183,7 @@ export class ProviderFactory {
   }
 
   private buildCacheKey(config: ProviderConfig): string {
-    return `${config.provider}|${config.baseUrl}|${config.apiKey || ''}|${config.defaultModel || ''}`;
+    return `${config.provider}|${config.baseUrl}|${config.apiKey || ''}`;
   }
 
   private parseModelList(data: RawModelList): DiscoveredModel[] {

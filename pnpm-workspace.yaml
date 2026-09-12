@@ -17,7 +17,7 @@ minimumReleaseAgeExclude:
   - '@vinhnt-sdk/step-executor@0.1.6'
   - '@vinhnt-sdk/mcp@0.2.0'
   - '@vinhnt-sdk/tools@0.2.0'
-  - '@vinhnt-sdk/provider-openai-compatible@0.1.4'
+  - '@vinhnt-sdk/provider-openai-compatible@0.1.4 || 0.1.5'
 
 overrides:
   '@vinhnt-sdk/llm': '0.1.5'

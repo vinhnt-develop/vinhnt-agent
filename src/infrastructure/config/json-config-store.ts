@@ -8,7 +8,6 @@ export interface ProviderJsonConfig {
   name: string;
   apiKey: string | null;
   baseUrl: string | null;
-  defaultModel: string | null;
   configs: Record<string, unknown>;
   pricing: Record<string, unknown>;
   isActive: boolean;

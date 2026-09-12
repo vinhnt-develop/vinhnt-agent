@@ -24,6 +24,7 @@ import {
 import {
   SupportedProviderItemDto,
   ProviderModelDto,
+  ProviderModelsGroupDto,
 } from '../dto/supported-providers.dto';
 import { PROVIDER_REGISTRY, getProviderDefinition } from '../providers/provider-registry';
 
@@ -34,6 +35,7 @@ import { PROVIDER_REGISTRY, getProviderDefinition } from '../providers/provider-
   ProviderConfigResponseDto,
   SupportedProviderItemDto,
   ProviderModelDto,
+  ProviderModelsGroupDto,
 )
 @Controller({ path: 'providers', version: '1' })
 export class ProviderConfigController {
@@ -50,6 +52,65 @@ export class ProviderConfigController {
       isAvailable: true,
     }));
     return formatResponse.array(SupportedProviderItemDto, providers, 'Supported providers retrieved successfully.');
+  }
+
+  @Get('models/all')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get models for all configured providers' })
+  @ApiDataResponse(ProviderModelsGroupDto, { isArray: true })
+  async getAllProviderModels(): Promise<ApiResponse<ProviderModelsGroupDto[]>> {
+    const configs = await this.providerConfigService.findEnabled();
+    const results: ProviderModelsGroupDto[] = [];
+
+    for (const config of configs) {
+      const definition = getProviderDefinition(config.provider);
+      if (!definition) continue;
+
+      const url = config.baseUrl || definition.defaultBaseUrl;
+      const modelsUrl = definition.nativeModelsUrl || `${url}${definition.modelsEndpoint}`;
+
+      try {
+        const headers: Record<string, string> = {};
+        if (config.apiKey && config.provider !== 'google') {
+          headers['Authorization'] = `Bearer ${config.apiKey}`;
+        }
+
+        const fetchUrl = config.provider === 'google' && config.apiKey
+          ? `${modelsUrl}?key=${config.apiKey}`
+          : modelsUrl;
+
+        const response = await fetch(fetchUrl, { method: 'GET', headers });
+        if (!response.ok) {
+          results.push({
+            provider: config.provider,
+            providerName: definition.name,
+            configured: true,
+            models: [],
+            error: `Failed to fetch models: ${response.status}`,
+          });
+          continue;
+        }
+
+        const data = await response.json();
+        const models = this.parseModels(config.provider, data);
+        results.push({
+          provider: config.provider,
+          providerName: definition.name,
+          configured: true,
+          models,
+        });
+      } catch (error) {
+        results.push({
+          provider: config.provider,
+          providerName: definition.name,
+          configured: true,
+          models: [],
+          error: `Failed to fetch models: ${error}`,
+        });
+      }
+    }
+
+    return formatResponse.array(ProviderModelsGroupDto, results, 'Provider models retrieved successfully.');
   }
 
   @Get(':provider/models')

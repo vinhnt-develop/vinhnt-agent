@@ -32,12 +32,15 @@ export class ProviderConfigRepository {
     return this.configStore.findAll().filter((c) => c.provider === provider);
   }
 
+  async findSingleByProvider(provider: string) {
+    return this.configStore.findAll().find((c) => c.provider === provider) || null;
+  }
+
   async create(data: {
     provider: string;
     name: string;
     apiKey?: string;
     baseUrl?: string;
-    defaultModel?: string;
     configs?: Record<string, unknown>;
     pricing?: Record<string, unknown>;
     isDefault?: boolean;
@@ -58,7 +61,6 @@ export class ProviderConfigRepository {
       name: data.name,
       apiKey: data.apiKey ?? null,
       baseUrl: data.baseUrl ?? null,
-      defaultModel: data.defaultModel ?? null,
       configs: data.configs ?? {},
       pricing: data.pricing ?? {},
       isActive: true,
@@ -71,11 +73,40 @@ export class ProviderConfigRepository {
     return this.findById(id);
   }
 
+  async upsertByProvider(data: {
+    provider: string;
+    name: string;
+    apiKey?: string;
+    baseUrl?: string;
+    configs?: Record<string, unknown>;
+    pricing?: Record<string, unknown>;
+    isActive?: boolean;
+  }) {
+    const existing = await this.findSingleByProvider(data.provider);
+    if (existing) {
+      return this.update(existing.id, {
+        name: data.name,
+        apiKey: data.apiKey,
+        baseUrl: data.baseUrl,
+        configs: data.configs,
+        pricing: data.pricing,
+        isActive: data.isActive,
+      });
+    }
+    return this.create({
+      provider: data.provider,
+      name: data.name,
+      apiKey: data.apiKey,
+      baseUrl: data.baseUrl,
+      configs: data.configs,
+      pricing: data.pricing,
+    });
+  }
+
   async update(id: string, data: {
     name?: string;
     apiKey?: string;
     baseUrl?: string;
-    defaultModel?: string;
     configs?: Record<string, unknown>;
     pricing?: Record<string, unknown>;
     isActive?: boolean;
@@ -87,7 +118,6 @@ export class ProviderConfigRepository {
     if (data.name !== undefined) updateData.name = data.name;
     if (data.apiKey !== undefined) updateData.apiKey = data.apiKey;
     if (data.baseUrl !== undefined) updateData.baseUrl = data.baseUrl;
-    if (data.defaultModel !== undefined) updateData.defaultModel = data.defaultModel;
     if (data.configs !== undefined) updateData.configs = data.configs;
     if (data.pricing !== undefined) updateData.pricing = data.pricing;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
