@@ -54,7 +54,7 @@ export class ProviderConfigController {
     return formatResponse.array(SupportedProviderItemDto, providers, 'Supported providers retrieved successfully.');
   }
 
-  @Get('models/all')
+  @Get('all-models')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get models for all configured providers' })
   @ApiDataResponse(ProviderModelsGroupDto, { isArray: true })
