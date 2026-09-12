@@ -1,0 +1,18 @@
+[
+  {
+    "id": "example-openai",
+    "provider": "openai",
+    "name": "My OpenAI",
+    "baseUrl": "https://api.openai.com/v1",
+    "defaultModel": "gpt-4o",
+    "configs": {},
+    "pricing": {
+      "gpt-4o": { "input": 2.5, "output": 10 },
+      "gpt-4o-mini": { "input": 0.15, "output": 0.6 }
+    },
+    "isActive": true,
+    "isDefault": true,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

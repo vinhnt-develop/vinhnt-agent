@@ -1,7 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
-import { providerConfigs } from '@/modules/agent/schemas/agent.schema';
-import { eq, sql } from 'drizzle-orm';
 import type {
   ModelProvider,
   ModelRequest,
@@ -25,6 +23,7 @@ export interface ProviderConfig {
   defaultMaxTokens?: number;
   temperature?: number;
   contextLimit?: number;
+  pricing?: { input?: number; output?: number };
 }
 
 interface CacheEntry {
@@ -98,6 +97,7 @@ export class ProviderFactory {
         baseUrl: config.baseUrl || '',
         apiKey: config.apiKey || '',
         defaultModel: config.defaultModel || '',
+        pricing: config.pricing || undefined,
       };
     } catch (error) {
       this.logger.warn('Failed to get provider config from DB', error);
@@ -146,8 +146,18 @@ export class ProviderFactory {
       retry: { maxRetries: 3, baseBackoffMs: 1000, maxBackoffMs: 30_000 },
     };
 
+    const pricing: ModelPricing | undefined =
+      config.pricing?.input !== undefined && config.pricing?.output !== undefined
+        ? { input: config.pricing.input, output: config.pricing.output }
+        : undefined;
+
     const inner = new OpenAICompatibleProvider(opts);
-    return new ProviderAdapter(inner, config.provider);
+
+    if (config.provider === 'google') {
+      return new GoogleProviderAdapter(inner, pricing);
+    }
+
+    return new ProviderAdapter(inner, config.provider, pricing);
   }
 
   /**
@@ -213,13 +223,14 @@ class ProviderAdapter implements ModelProvider {
   readonly capabilities: ModelCapabilities;
 
   constructor(
-    private readonly inner: OpenAICompatibleProvider,
+    protected readonly inner: OpenAICompatibleProvider,
     providerName: string,
+    pricing?: ModelPricing,
   ) {
     this.provider = providerName;
     this.model = inner.model;
     this.contextLimit = inner.contextLimit;
-    this.pricing = inner.pricing;
+    this.pricing = pricing || inner.pricing;
     this.capabilities = inner.capabilities;
   }
 
@@ -236,5 +247,75 @@ class ProviderAdapter implements ModelProvider {
     signal?: AbortSignal,
   ): AsyncIterable<ModelStreamEvent> {
     yield* this.inner.stream(request, signal);
+  }
+
+  countTokens?(text: string): number;
+}
+
+class GoogleProviderAdapter extends ProviderAdapter {
+  private readonly tokenizer = new GoogleTokenizer();
+
+  constructor(
+    inner: OpenAICompatibleProvider,
+    pricing?: ModelPricing,
+  ) {
+    super(inner, 'google', pricing);
+  }
+
+  override countTokens(text: string): number {
+    return this.tokenizer.count(text);
+  }
+
+  override async *stream(
+    request: ModelRequest,
+    signal?: AbortSignal,
+  ): AsyncIterable<ModelStreamEvent> {
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let lastTextContent = '';
+    let hasUsage = false;
+
+    for await (const event of this.inner.stream(request, signal)) {
+      if (event.type === 'usage') {
+        if (event.inputTokens > 0 || event.outputTokens > 0) {
+          inputTokens = event.inputTokens;
+          outputTokens = event.outputTokens;
+          hasUsage = true;
+        }
+      }
+
+      if (event.type === 'text') {
+        lastTextContent += event.content;
+      }
+
+      yield event;
+    }
+
+    if (!hasUsage && (inputTokens === 0 && outputTokens === 0)) {
+      const allMessages = request.messages || [];
+      const promptText = allMessages.map((m: any) =>
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
+      ).join('\n');
+
+      inputTokens = this.tokenizer.count(promptText);
+      outputTokens = lastTextContent ? this.tokenizer.count(lastTextContent) : 0;
+
+      yield {
+        type: 'usage',
+        inputTokens,
+        outputTokens,
+      } as ModelStreamEvent;
+    }
+  }
+}
+
+class GoogleTokenizer {
+  private readonly CHARS_PER_TOKEN = 4;
+
+  count(text: string): number {
+    if (!text) return 0;
+    const charCount = text.length;
+    const tokenEstimate = Math.ceil(charCount / this.CHARS_PER_TOKEN);
+    return Math.max(1, tokenEstimate);
   }
 }

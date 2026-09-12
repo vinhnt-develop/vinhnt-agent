@@ -29,7 +29,7 @@ export class McpServerService {
     name: string;
     transport: string;
     command?: string;
-    args?: Record<string, any>;
+    args?: string[];
     url?: string;
     env?: Record<string, string>;
     isEnabled?: boolean;
@@ -45,7 +45,7 @@ export class McpServerService {
     name?: string;
     transport?: string;
     command?: string;
-    args?: Record<string, any>;
+    args?: string[];
     url?: string;
     env?: Record<string, string>;
     isEnabled?: boolean;

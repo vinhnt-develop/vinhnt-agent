@@ -1,0 +1,16 @@
+[
+  {
+    "id": "example-filesystem",
+    "name": "filesystem",
+    "transport": "stdio",
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+    "url": null,
+    "env": {},
+    "isEnabled": true,
+    "toolCount": 0,
+    "lastConnectedAt": null,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

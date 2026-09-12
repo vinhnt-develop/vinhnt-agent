@@ -21,7 +21,9 @@ export const runEvents = sqliteTable('run_events', {
   data: text('data', { mode: 'json' }).default({}),
   traceId: text('trace_id'),
   occurredAt: text('occurred_at').default(sql`datetime('now')`),
-});
+}, (table) => [
+  index('idx_run_events_run_id').on(table.runId),
+]);
 
 export const toolExecutions = sqliteTable('tool_executions', {
   id: text('id').primaryKey(),
@@ -36,7 +38,10 @@ export const toolExecutions = sqliteTable('tool_executions', {
   durationMs: integer('duration_ms').default(0),
   startedAt: text('started_at').default(sql`datetime('now')`),
   completedAt: text('completed_at'),
-});
+}, (table) => [
+  index('idx_tool_executions_run_id').on(table.runId),
+  index('idx_tool_executions_session_id').on(table.sessionId),
+]);
 
 export const agentRuns = sqliteTable('agent_runs', {
   id: text('id').primaryKey(),
@@ -56,52 +61,6 @@ export const agentRuns = sqliteTable('agent_runs', {
   startedAt: text('started_at'),
   completedAt: text('completed_at'),
   createdAt: text('created_at').default(sql`datetime('now')`),
-});
-
-export const providerConfigs = sqliteTable('provider_configs', {
-  id: text('id').primaryKey(),
-  provider: text('provider').notNull(),
-  name: text('name'),
-  apiKey: text('api_key'),
-  baseUrl: text('base_url'),
-  defaultModel: text('default_model'),
-  configs: text('configs', { mode: 'json' }).default({}),
-  isActive: integer('is_active', { mode: 'boolean' }).default(true),
-  isDefault: integer('is_default', { mode: 'boolean' }).default(false),
-  createdAt: text('created_at').default(sql`datetime('now')`),
-  updatedAt: text('updated_at').default(sql`datetime('now')`),
-  deletedAt: text('deleted_at'),
-});
-
-export const mcpServers = sqliteTable('mcp_servers', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull().unique(),
-  transport: text('transport').notNull(), // 'stdio' | 'sse' | 'streamable-http'
-  command: text('command'),
-  args: text('args', { mode: 'json' }),
-  url: text('url'),
-  env: text('env', { mode: 'json' }).default({}),
-  isEnabled: integer('is_enabled', { mode: 'boolean' }).default(true),
-  toolCount: integer('tool_count').default(0),
-  lastConnectedAt: text('last_connected_at'),
-  createdAt: text('created_at').default(sql`datetime('now')`),
-  updatedAt: text('updated_at').default(sql`datetime('now')`),
-  deletedAt: text('deleted_at'),
 }, (table) => [
-  index('idx_mcp_servers_name').on(table.name),
-]);
-
-export const credentials = sqliteTable('credentials', {
-  id: text('id').primaryKey(),
-  name: text('name').notNull(),
-  label: text('label'),
-  type: text('type').notNull(),
-  valueEncrypted: text('value_encrypted').notNull(),
-  metadata: text('metadata', { mode: 'json' }).default({}),
-  expiresAt: text('expires_at'),
-  createdAt: text('created_at').default(sql`datetime('now')`),
-  updatedAt: text('updated_at').default(sql`datetime('now')`),
-  deletedAt: text('deleted_at'),
-}, (table) => [
-  index('idx_credentials_name').on(table.name),
+  index('idx_agent_runs_session_id').on(table.sessionId),
 ]);

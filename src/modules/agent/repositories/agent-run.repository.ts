@@ -1,0 +1,80 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { agentRuns } from '@/modules/agent/schemas/agent.schema';
+import { eq, sql } from 'drizzle-orm';
+
+@Injectable()
+export class AgentRunRepository {
+  constructor(@Inject(DATABASE_CONNECTION) private readonly db: any) {}
+
+  create(data: {
+    id: string;
+    sessionId: string;
+    status?: string;
+    triggerType?: string;
+    model?: string;
+    provider?: string;
+    startedAt?: string;
+  }) {
+    return this.db
+      .insert(agentRuns)
+      .values({
+        id: data.id,
+        sessionId: data.sessionId,
+        status: data.status || 'running',
+        triggerType: data.triggerType || 'http',
+        model: data.model,
+        provider: data.provider,
+        startedAt: data.startedAt || new Date().toISOString(),
+      })
+      .returning()
+      .get();
+  }
+
+  update(id: string, data: {
+    status?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    reasoningTokens?: number;
+    totalCost?: number;
+    durationMs?: number;
+    toolCallsCount?: number;
+    errorMessage?: string;
+    completedAt?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    return this.db
+      .update(agentRuns)
+      .set(data)
+      .where(eq(agentRuns.id, id))
+      .returning()
+      .get();
+  }
+
+  findById(id: string) {
+    return this.db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.id, id))
+      .get();
+  }
+
+  findBySessionId(sessionId: string) {
+    return this.db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.sessionId, sessionId))
+      .orderBy(sql`${agentRuns.createdAt} DESC`)
+      .all();
+  }
+
+  incrementToolCallsCount(id: string) {
+    return this.db
+      .update(agentRuns)
+      .set({
+        toolCallsCount: sql`COALESCE(${agentRuns.toolCallsCount}, 0) + 1`,
+      })
+      .where(eq(agentRuns.id, id))
+      .run();
+  }
+}

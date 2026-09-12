@@ -70,11 +70,14 @@ export class SessionRepository {
     return this.db.select().from(messages).where(eq(messages.id, id)).get();
   }
 
-  async findMessages(sessionId: string) {
-    return this.db
+  async findMessages(sessionId: string, limit = 10) {
+    const rows = this.db
       .select()
       .from(messages)
       .where(eq(messages.sessionId, sessionId))
+      .orderBy(sql`${messages.createdAt} DESC`)
+      .limit(limit)
       .all();
+    return rows.reverse();
   }
 }

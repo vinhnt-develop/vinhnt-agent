@@ -6,8 +6,6 @@ import { WorkspaceModule } from './workspace';
 import { ProjectModule } from './project';
 import { SessionModule } from './session';
 import { KnowledgeModule } from './knowledge';
-import { ToolConfigModule } from './tool-config';
-import { PluginConfigModule } from './plugin-config';
 import { McpServersModule } from './mcp-servers';
 import { ProviderConfigModule } from './provider-config';
 import { CredentialModule } from './credential';
@@ -22,8 +20,6 @@ export const modules = [
   ProjectModule,
   SessionModule,
   KnowledgeModule,
-  ToolConfigModule,
-  PluginConfigModule,
   McpServersModule,
   ProviderConfigModule,
   CredentialModule,

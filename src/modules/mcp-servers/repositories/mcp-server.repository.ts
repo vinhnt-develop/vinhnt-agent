@@ -1,83 +1,74 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
-import { mcpServers } from '@/modules/agent/schemas/agent.schema';
-import { eq, sql, desc, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+import {
+  JsonConfigStore,
+  type McpServerJsonConfig,
+} from '@/infrastructure/config/json-config-store';
+import { MCP_SERVERS_CONFIG } from '@/infrastructure/config/config.module';
 
 @Injectable()
 export class McpServerRepository {
-  constructor(@Inject(DATABASE_CONNECTION) private readonly db: any) {}
+  constructor(
+    @Inject(MCP_SERVERS_CONFIG) private readonly configStore: JsonConfigStore<McpServerJsonConfig>,
+  ) {}
 
   async findById(id: string) {
-    return this.db.select().from(mcpServers).where(eq(mcpServers.id, id)).get();
+    return this.configStore.findById(id) || null;
   }
 
   async findAll() {
-    return this.db
-      .select()
-      .from(mcpServers)
-      .where(sql`${mcpServers.deletedAt} IS NULL`)
-      .orderBy(desc(mcpServers.createdAt))
-      .all();
+    return this.configStore.findAll();
   }
 
   async findEnabled() {
-    return this.db
-      .select()
-      .from(mcpServers)
-      .where(and(eq(mcpServers.isEnabled, true), sql`${mcpServers.deletedAt} IS NULL`))
-      .orderBy(desc(mcpServers.createdAt))
-      .all();
+    return this.configStore.findAll().filter((s) => s.isEnabled);
   }
 
   async findByName(name: string) {
-    return this.db
-      .select()
-      .from(mcpServers)
-      .where(eq(mcpServers.name, name))
-      .get();
+    return this.configStore.findAll().find((s) => s.name === name) || null;
   }
 
   async create(data: {
     name: string;
     transport: string;
     command?: string;
-    args?: Record<string, any>;
+    args?: string[];
     url?: string;
     env?: Record<string, string>;
     isEnabled?: boolean;
   }) {
-    const id = uuid();
     const now = new Date().toISOString();
-
-    this.db.insert(mcpServers).values({
-      id,
+    const config: McpServerJsonConfig = {
+      id: uuid(),
       name: data.name,
       transport: data.transport,
-      command: data.command,
-      args: data.args,
-      url: data.url,
+      command: data.command ?? null,
+      args: data.args ?? null,
+      url: data.url ?? null,
       env: data.env ?? {},
       isEnabled: data.isEnabled ?? true,
+      toolCount: 0,
+      lastConnectedAt: null,
       createdAt: now,
       updatedAt: now,
-    }).run();
-
-    return this.findById(id);
+    };
+    return this.configStore.create(config);
   }
 
   async update(id: string, data: {
     name?: string;
     transport?: string;
     command?: string;
-    args?: Record<string, any>;
+    args?: string[];
     url?: string;
     env?: Record<string, string>;
     isEnabled?: boolean;
     toolCount?: number;
     lastConnectedAt?: string;
   }) {
-    const updateData: Record<string, any> = { updatedAt: new Date().toISOString() };
+    const updateData: Partial<McpServerJsonConfig> = {
+      updatedAt: new Date().toISOString(),
+    };
     if (data.name !== undefined) updateData.name = data.name;
     if (data.transport !== undefined) updateData.transport = data.transport;
     if (data.command !== undefined) updateData.command = data.command;
@@ -87,12 +78,10 @@ export class McpServerRepository {
     if (data.isEnabled !== undefined) updateData.isEnabled = data.isEnabled;
     if (data.toolCount !== undefined) updateData.toolCount = data.toolCount;
     if (data.lastConnectedAt !== undefined) updateData.lastConnectedAt = data.lastConnectedAt;
-
-    this.db.update(mcpServers).set(updateData).where(eq(mcpServers.id, id)).run();
-    return this.findById(id);
+    return this.configStore.update(id, updateData) || null;
   }
 
   async softDelete(id: string) {
-    this.db.update(mcpServers).set({ deletedAt: new Date().toISOString() }).where(eq(mcpServers.id, id)).run();
+    this.configStore.delete(id);
   }
 }

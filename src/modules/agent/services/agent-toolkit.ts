@@ -67,7 +67,6 @@ import {
   BUILTIN_SERVERS,
   type LspServerDefinition,
 } from '@vinhnt-sdk/lsp';
-import { ToolConfigService } from '@/modules/tool-config/services/tool-config.service';
 import { McpServerService } from '@/modules/mcp-servers/services/mcp-server.service';
 
 export interface AgentToolkitConfig {
@@ -102,7 +101,6 @@ export class AgentToolkit {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly toolConfigService: ToolConfigService,
     private readonly mcpServerService: McpServerService,
   ) {
     this.envSnapshot = resolveEnv(process.env);
@@ -130,24 +128,6 @@ export class AgentToolkit {
     );
   }
 
-  async loadToolsFromDb(): Promise<void> {
-    try {
-      const toolConfigs = await this.toolConfigService.findEnabled();
-      this.logger.log(`Loading ${toolConfigs.length} tool configs from DB`);
-      for (const config of toolConfigs) {
-        if (config.source === 'builtin') continue;
-        if (config.source === 'mcp' && config.mcpServerName) {
-          continue;
-        }
-        if (config.source === 'custom') {
-          continue;
-        }
-      }
-    } catch (error) {
-      this.logger.warn('Failed to load tools from DB', error);
-    }
-  }
-
   async connectMcpServersFromDb(): Promise<void> {
     try {
       const servers = await this.mcpServerService.findEnabled();
@@ -157,9 +137,9 @@ export class AgentToolkit {
           const config: McpServerConfig = {
             name: server.name,
             transport: server.transport as 'stdio' | 'sse' | 'streamable-http',
-            command: server.command,
+            command: server.command ?? undefined,
             args: Array.isArray(server.args) ? server.args : undefined,
-            url: server.url,
+            url: server.url ?? undefined,
             env: server.env as Record<string, string> | undefined,
           };
           await this.connectMcpServer(config);

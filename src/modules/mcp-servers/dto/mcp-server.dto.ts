@@ -21,8 +21,7 @@ export class CreateMcpServerDto {
 
   @ApiPropertyOptional({ description: 'Command arguments for stdio transport', example: ['-y', '@modelcontextprotocol/server-filesystem'] })
   @IsOptional()
-  @IsObject()
-  args?: Record<string, any>;
+  args?: string[];
 
   @ApiPropertyOptional({ description: 'URL for SSE/HTTP transport', example: 'http://localhost:3001/mcp' })
   @IsOptional()
@@ -59,8 +58,7 @@ export class UpdateMcpServerDto {
 
   @ApiPropertyOptional({ description: 'Command arguments' })
   @IsOptional()
-  @IsObject()
-  args?: Record<string, any>;
+  args?: string[];
 
   @ApiPropertyOptional({ description: 'URL for SSE/HTTP transport' })
   @IsOptional()
@@ -83,7 +81,7 @@ export class McpServerResponseDto {
   @Expose({ name: 'name' }) name!: string;
   @Expose({ name: 'transport' }) transport!: string;
   @Expose({ name: 'command' }) command?: string;
-  @Expose({ name: 'args' }) args?: Record<string, unknown>;
+  @Expose({ name: 'args' }) args?: string[];
   @Expose({ name: 'url' }) url?: string;
   @Expose({ name: 'env' }) env?: Record<string, string>;
   @Expose({ name: 'is_enabled' })

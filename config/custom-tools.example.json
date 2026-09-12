@@ -1,0 +1,24 @@
+[
+  {
+    "id": "example-webhook",
+    "name": "my-webhook",
+    "description": "Example custom webhook tool",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": { "type": "string", "description": "URL to call" }
+      },
+      "required": ["url"]
+    },
+    "handlerType": "webhook",
+    "handlerConfig": {
+      "url": "https://example.com/api/hook",
+      "method": "POST",
+      "headers": {}
+    },
+    "timeoutMs": 30000,
+    "isActive": true,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

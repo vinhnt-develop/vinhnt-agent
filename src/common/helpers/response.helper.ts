@@ -7,12 +7,16 @@ export const formatResponse = {
     data: any = null,
     message = 'Success!',
   ): ApiResponse<T> {
-    const transformedData =
-      dto && data
-        ? plainToInstance(dto, data, {
-            excludeExtraneousValues: true,
-          })
-        : null;
+    if (!dto || !data) {
+      return {
+        status: 'success',
+        message,
+        data: data ?? null,
+      };
+    }
+    const transformedData = plainToInstance(dto, data, {
+      excludeExtraneousValues: true,
+    });
     return {
       status: 'success',
       message,

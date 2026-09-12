@@ -15,6 +15,7 @@ import {
   ProviderFactory,
 } from '@/infrastructure/model/provider-factory';
 import { AgentToolkit } from './agent-toolkit';
+import { AgentRunTrackingService } from './agent-run-tracking.service';
 
 export interface RunAgentInput {
   sessionId: string;
@@ -50,6 +51,7 @@ export class AgentService {
     private readonly providerFactory: ProviderFactory,
     private readonly configService: ConfigService,
     private readonly agentToolkit: AgentToolkit,
+    private readonly trackingService: AgentRunTrackingService,
   ) {
     this.maxKernelCacheSize = this.configService.get<number>('agent.maxKernelCacheSize', 50);
   }
@@ -122,10 +124,29 @@ export class AgentService {
 
   async runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const { sessionId, prompt, model, provider } = input;
-    this.logger.log(`Running agent for session ${sessionId}`);
+    this.logger.log(`Running agent for session ${sessionId}, model=${model}, provider=${provider}`);
+
+    if (!sessionId) {
+      this.logger.error('runAgent called without sessionId');
+      return { runId: '', status: 'failed', output: 'Session ID is required', totalSteps: 0 };
+    }
+
+    const existingMessages = await this.sessionStore.listMessages(sessionId);
+    if (existingMessages.length === 0) {
+      this.logger.warn(`Session ${sessionId} has no messages - session may not exist in DB`);
+    }
 
     const runId = crypto.randomUUID();
+    const runStartedAt = Date.now();
     this.agentToolkit.recordTimelineEvent(runId, 'run.started', { sessionId });
+
+    this.trackingService.startRun({
+      runId,
+      sessionId,
+      model,
+      provider,
+      triggerType: 'http',
+    });
 
     const kernel = await this.getKernel(model, provider);
     const ctx = this.buildRequestContext(provider, model);
@@ -139,7 +160,21 @@ export class AgentService {
       const messages = await this.sessionStore.listMessages(sessionId);
       const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
 
+      const durationMs = Date.now() - runStartedAt;
       this.agentToolkit.recordTimelineEvent(runId, 'run.completed', { status: 'succeeded' });
+
+      this.logger.log(`Agent run completed for session ${sessionId}: tokens in=${lastAssistantMsg?.tokens?.input || 0}, out=${lastAssistantMsg?.tokens?.output || 0}, cost=${lastAssistantMsg?.cost || 0}`);
+
+      this.trackingService.completeRun({
+        runId,
+        status: 'succeeded',
+        inputTokens: lastAssistantMsg?.tokens?.input,
+        outputTokens: lastAssistantMsg?.tokens?.output,
+        reasoningTokens: lastAssistantMsg?.tokens?.reasoning,
+        totalCost: lastAssistantMsg?.cost,
+        durationMs,
+        metadata: { model: lastAssistantMsg?.model, provider: lastAssistantMsg?.provider },
+      });
 
       return {
         runId,
@@ -151,9 +186,18 @@ export class AgentService {
       };
     } catch (error) {
       this.logger.error(`Agent run failed for session ${sessionId}`, error);
+      const durationMs = Date.now() - runStartedAt;
       this.agentToolkit.recordTimelineEvent(runId, 'run.failed', {
         error: error instanceof Error ? error.message : String(error),
       });
+
+      this.trackingService.completeRun({
+        runId,
+        status: 'failed',
+        durationMs,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
+
       return {
         runId,
         status: 'failed',
@@ -165,13 +209,24 @@ export class AgentService {
     }
   }
 
-  async runAgentStreaming(input: RunAgentInput): Promise<any> {
+  async runAgentStreaming(input: RunAgentInput): Promise<{ handle: any; runId: string }> {
     const { sessionId, prompt, model, provider } = input;
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
+    const runId = crypto.randomUUID();
+
+    this.trackingService.startRun({
+      runId,
+      sessionId,
+      model,
+      provider,
+      triggerType: 'websocket',
+    });
+
     const kernel = await this.getKernel(model, provider);
     const ctx = this.buildRequestContext(provider, model);
-    return kernel.createRunHandle(prompt, ctx, sessionId);
+    const handle = kernel.createRunHandle(prompt, ctx, sessionId);
+    return { handle, runId };
   }
 
   async cancelRun(_runId: string): Promise<void> {

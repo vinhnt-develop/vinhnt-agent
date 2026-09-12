@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ProjectRepository } from '../repositories/project.repository';
 
 @Injectable()
@@ -18,10 +18,6 @@ export class ProjectService {
   }
 
   async create(data: { name: string; description?: string; path?: string; directory?: string; workspaceId: string }) {
-    const existing = await this.projectRepository.findByName(data.name, data.workspaceId);
-    if (existing) {
-      throw new ConflictException('Project name already exists in this workspace');
-    }
     const projectData = { ...data, path: data.path ?? data.directory };
     return this.projectRepository.create(projectData);
   }

@@ -1,6 +1,6 @@
 import { IsString, IsNotEmpty, IsOptional, IsObject } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Expose, Transform } from 'class-transformer';
+import { Expose } from 'class-transformer';
 
 export class CreateCredentialDto {
   @ApiProperty({ description: 'Credential name', example: 'github-token' })
@@ -18,7 +18,7 @@ export class CreateCredentialDto {
   @IsNotEmpty()
   type!: string;
 
-  @ApiProperty({ description: 'Credential value (will be encrypted)' })
+  @ApiProperty({ description: 'Credential value' })
   @IsString()
   @IsNotEmpty()
   value!: string;
@@ -50,7 +50,7 @@ export class UpdateCredentialDto {
   @IsString()
   type?: string;
 
-  @ApiPropertyOptional({ description: 'Credential value (will be encrypted)' })
+  @ApiPropertyOptional({ description: 'Credential value' })
   @IsOptional()
   @IsString()
   value?: string;
@@ -67,21 +67,12 @@ export class UpdateCredentialDto {
 }
 
 export class CredentialResponseDto {
-  @Expose({ name: 'id' }) id!: string;
-  @Expose({ name: 'name' }) name!: string;
-  @Expose({ name: 'label' }) label?: string;
-  @Expose({ name: 'type' }) type!: string;
-  @Expose({ name: 'metadata' }) metadata?: Record<string, unknown>;
-  @Expose({ name: 'expires_at' })
-  @Transform(({ obj }) => obj.expires_at ?? obj.expiresAt)
-  expiresAt?: string;
-  @Expose({ name: 'created_at' })
-  @Transform(({ obj }) => obj.created_at ?? obj.createdAt)
-  createdAt?: string;
-  @Expose({ name: 'updated_at' })
-  @Transform(({ obj }) => obj.updated_at ?? obj.updatedAt)
-  updatedAt?: string;
-  @Expose({ name: 'deleted_at' })
-  @Transform(({ obj }) => obj.deleted_at ?? obj.deletedAt)
-  deletedAt?: string;
+  @Expose() id!: string;
+  @Expose() name!: string;
+  @Expose() label?: string;
+  @Expose() type!: string;
+  @Expose() metadata?: Record<string, unknown>;
+  @Expose() expiresAt?: string;
+  @Expose() createdAt?: string;
+  @Expose() updatedAt?: string;
 }

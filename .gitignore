@@ -79,3 +79,8 @@ AGENTS.md
 *.dbml
 *.dbdiagram
 tsconfig.tsbuildinfo
+
+# ===== Config (user-specific) =====
+config/providers.json
+config/mcp-servers.json
+config/custom-tools.json
