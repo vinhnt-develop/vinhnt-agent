@@ -17,6 +17,43 @@ import {
 import { AgentToolkit } from './agent-toolkit';
 import { AgentRunTrackingService } from './agent-run-tracking.service';
 
+/**
+ * Extract human-readable error message from nested API error structures.
+ * Handles Google API, OpenAI API, and generic error formats.
+ */
+function extractActualErrorMessage(error: unknown): string {
+  if (!error) return 'Unknown error';
+  
+  const errorStr = typeof error === 'string' ? error : JSON.stringify(error);
+  
+  try {
+    const parsed = typeof error === 'string' ? JSON.parse(error) : error;
+    
+    if (parsed && typeof parsed === 'object') {
+      // Check for error.error.message (Google API format)
+      if (parsed.error?.error?.message) {
+        return parsed.error.error.message;
+      }
+      // Check for error.message (OpenAI format)
+      if (parsed.error?.message) {
+        return parsed.error.message;
+      }
+      // Check for message directly
+      if (parsed.message) {
+        return parsed.message;
+      }
+      // Check for error as string
+      if (typeof parsed.error === 'string') {
+        return parsed.error;
+      }
+    }
+  } catch {
+    // If parsing fails, return the original string
+  }
+  
+  return errorStr;
+}
+
 export interface RunAgentInput {
   sessionId: string;
   prompt: string;
@@ -185,23 +222,24 @@ export class AgentService {
         model: lastAssistantMsg?.model,
       };
     } catch (error) {
-      this.logger.error(`Agent run failed for session ${sessionId}`, error);
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Agent run failed for session ${sessionId}`, errorMsg);
       const durationMs = Date.now() - runStartedAt;
       this.agentToolkit.recordTimelineEvent(runId, 'run.failed', {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
       });
 
       this.trackingService.completeRun({
         runId,
         status: 'failed',
         durationMs,
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage: errorMsg,
       });
 
       return {
         runId,
         status: 'failed',
-        output: error instanceof Error ? error.message : String(error),
+        output: errorMsg,
         totalSteps: 0,
       };
     } finally {

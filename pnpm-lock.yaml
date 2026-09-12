@@ -73,8 +73,8 @@ importers:
         specifier: 0.1.4
         version: 0.1.4
       '@vinhnt-sdk/provider-openai-compatible':
-        specifier: 0.1.3
-        version: 0.1.3
+        specifier: 0.1.4
+        version: 0.1.4
       '@vinhnt-sdk/sandbox':
         specifier: 0.1.4
         version: 0.1.4
@@ -1806,10 +1806,6 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@vinhnt-sdk/config@0.1.3':
-    resolution: {integrity: sha512-76RfkllLKvh1G0MLEEDDMG5u78KXEXy8UraKSn8srrHhsv6PgQPJpeDK+QlLxqJugKSGm3ESnnK4zwffT10PEA==}
-    engines: {node: '>=20'}
-
   '@vinhnt-sdk/config@0.1.5':
     resolution: {integrity: sha512-wKbh4PeeLLxx2YESaojW6speOQhNS2qAbvq0C0NzT2VcU+xz0PXB6gGhj/iZekmGcfRM13HAd6z0wx9RVe+/Wg==}
     engines: {node: '>=20'}
@@ -1859,8 +1855,8 @@ packages:
     resolution: {integrity: sha512-+JsTYpQZYUY6QgUNP0txXUs481ACAPev2KjCw4SgsG1/FNn64OhZET9eKZ3iDwB9nkxc/Opm6UVr08Di4usrIQ==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/provider-openai-compatible@0.1.3':
-    resolution: {integrity: sha512-+c69ZMonkyl1/BWnKNuKvrBcZk4a88g1KUbfHHISBVSv7Q57haj3B8cNyIsj4Ip9vGRNV8m7EruE3se6fVOFeg==}
+  '@vinhnt-sdk/provider-openai-compatible@0.1.4':
+    resolution: {integrity: sha512-US/zqB9QoUvCGMnei9ACdX2nmUpZKthbbLGIvCxD+th5LUTe5HMIQgMZUcZyCCR/HJNgeoohN2pgntV1PfrVhw==}
     engines: {node: '>=20'}
 
   '@vinhnt-sdk/sandbox@0.1.3':
@@ -5707,10 +5703,6 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
 
-  '@vinhnt-sdk/config@0.1.3':
-    dependencies:
-      '@vinhnt-sdk/schema': 0.2.1
-
   '@vinhnt-sdk/config@0.1.5':
     dependencies:
       '@vinhnt-sdk/schema': 0.2.1
@@ -5784,9 +5776,9 @@ snapshots:
     dependencies:
       '@vinhnt-sdk/core': 0.1.3
 
-  '@vinhnt-sdk/provider-openai-compatible@0.1.3':
+  '@vinhnt-sdk/provider-openai-compatible@0.1.4':
     dependencies:
-      '@vinhnt-sdk/config': 0.1.3
+      '@vinhnt-sdk/config': 0.1.5
       '@vinhnt-sdk/schema': 0.2.1
       '@vinhnt-sdk/security': 0.1.3
 

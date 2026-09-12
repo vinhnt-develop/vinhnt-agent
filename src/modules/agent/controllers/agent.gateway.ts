@@ -12,6 +12,45 @@ import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
 
+/**
+ * Extract human-readable error message from nested API error structures.
+ * Handles Google API, OpenAI API, and generic error formats.
+ */
+function extractActualErrorMessage(error: unknown): string {
+  if (!error) return 'Unknown error';
+  
+  const errorStr = typeof error === 'string' ? error : JSON.stringify(error);
+  
+  try {
+    // Try to parse if it's a JSON string
+    const parsed = typeof error === 'string' ? JSON.parse(error) : error;
+    
+    // Handle Google API nested error structure
+    if (parsed && typeof parsed === 'object') {
+      // Check for error.error.message (Google API format)
+      if (parsed.error?.error?.message) {
+        return parsed.error.error.message;
+      }
+      // Check for error.message (OpenAI format)
+      if (parsed.error?.message) {
+        return parsed.error.message;
+      }
+      // Check for message directly
+      if (parsed.message) {
+        return parsed.message;
+      }
+      // Check for error as string
+      if (typeof parsed.error === 'string') {
+        return parsed.error;
+      }
+    }
+  } catch {
+    // If parsing fails, return the original string
+  }
+  
+  return errorStr;
+}
+
 @WebSocketGateway({
   cors: { origin: '*' },
   namespace: '/agent',
@@ -107,21 +146,44 @@ export class AgentGateway
       const result = await handle.completed;
       const durationMs = Date.now() - runStartedAt;
 
-      this.trackingService.completeRun({
-        runId,
-        status: 'succeeded',
-        inputTokens: result?.usage?.promptTokens,
-        outputTokens: result?.usage?.completionTokens,
-        totalCost: result?.cost,
-        durationMs,
-        toolCallsCount: result?.toolCalls?.length,
-      });
+      // Check if the run failed (SDK may return error in result)
+      const hasError = !result || (result as any).error || (result as any).status === 'failed';
+      
+      if (hasError) {
+        // Extract actual error message from nested API error structures
+        const rawError = (result as any)?.error || (result as any)?.output || 'Agent run failed';
+        const errorMsg = extractActualErrorMessage(rawError);
+        
+        this.logger.error(`Run failed for session ${data.sessionId}:`, errorMsg);
+        
+        this.trackingService.completeRun({
+          runId,
+          status: 'failed',
+          durationMs,
+          errorMessage: errorMsg,
+        });
 
-      client.emit('run:completed', result);
+        client.emit('run:error', {
+          error: errorMsg,
+        });
+      } else {
+        this.trackingService.completeRun({
+          runId,
+          status: 'succeeded',
+          inputTokens: result?.usage?.promptTokens,
+          outputTokens: result?.usage?.completionTokens,
+          totalCost: result?.cost,
+          durationMs,
+          toolCallsCount: result?.toolCalls?.length,
+        });
+
+        client.emit('run:completed', result);
+      }
     } catch (error) {
-      this.logger.error(`Run failed for ${client.id}`, error);
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Run failed for ${client.id}`, errorMsg);
       client.emit('run:error', {
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMsg,
       });
     }
   }
