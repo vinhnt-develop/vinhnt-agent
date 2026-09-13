@@ -83,6 +83,9 @@ export class AgentGateway
   private readonly logger = new Logger(AgentGateway.name);
   private unsubscribe?: () => void;
 
+  // Track error messages per runId from EventBus (emitFail puts error in run.completed event)
+  private runErrors = new Map<string, string>();
+
   constructor(
     private readonly agentService: AgentService,
     private readonly trackingService: AgentRunTrackingService,
@@ -92,6 +95,14 @@ export class AgentGateway
     const eventBus = this.agentService.getEventBus();
     this.unsubscribe = eventBus.subscribeAll((event) => {
       this.server?.emit('agent:event', event);
+      // Track errors per runId from EventBus
+      if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
+        const runId = (event as any).runId || (event as any).aggregateId;
+        const error = (event as any).data?.error;
+        if (runId && error) {
+          this.runErrors.set(runId, error);
+        }
+      }
     });
     this.logger.log('AgentGateway subscribed to EventBus');
   }
@@ -130,17 +141,9 @@ export class AgentGateway
 
       client.emit('run:started', { runId });
 
-      // Capture error from events stream (emitFail puts error in run.completed event)
-      let capturedError: string | null = null;
-
       // Stream events to client + track tool executions
       for await (const event of handle.events()) {
         client.emit('run:event', event);
-
-        // Capture error from run.completed event with status=failed
-        if (event.type === 'run.completed' && event.data?.status === 'failed') {
-          capturedError = event.data?.error || null;
-        }
 
         if (event.type === 'tool.invoked') {
           this.trackingService.startToolExecution({
@@ -169,12 +172,16 @@ export class AgentGateway
       const result = await handle.completed;
       const durationMs = Date.now() - runStartedAt;
 
+      // Get error from EventBus tracking (emitFail puts error there)
+      const trackedError = this.runErrors.get(runId);
+      if (trackedError) this.runErrors.delete(runId);
+
       // Check if the run failed
-      const hasError = !result || (result as any).error || (result as any).status === 'failed' || capturedError;
+      const hasError = !result || (result as any).error || (result as any).status === 'failed' || trackedError;
       
       if (hasError) {
-        // Use captured error from events stream, fallback to result fields
-        const rawError = capturedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
+        // Use tracked error from EventBus, fallback to result fields
+        const rawError = trackedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
         const errorMsg = extractActualErrorMessage(rawError);
         
         this.logger.error(`Run failed for session ${data.sessionId}:`, errorMsg);

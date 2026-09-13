@@ -59,7 +59,7 @@ export class ProviderConfigController {
   @ApiOperation({ summary: 'Get models for all configured providers' })
   @ApiDataResponse(ProviderModelsGroupDto, { isArray: true })
   async getAllProviderModels(): Promise<ApiResponse<ProviderModelsGroupDto[]>> {
-    const configs = await this.providerConfigService.findEnabled();
+    const configs = await this.providerConfigService.findAll();
     const results: ProviderModelsGroupDto[] = [];
 
     for (const config of configs) {

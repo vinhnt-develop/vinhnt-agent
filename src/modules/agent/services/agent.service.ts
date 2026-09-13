@@ -209,25 +209,29 @@ export class AgentService {
       this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
       const handle = kernel.run(prompt, ctx, sessionId);
       
-      // Capture error from events stream (emitFail puts error in run.completed event)
-      let capturedError: string | null = null;
-      for await (const event of handle.events()) {
-        if (event.type === 'run.completed' && event.data?.status === 'failed') {
-          capturedError = event.data?.error || null;
+      // Track error from EventBus (emitFail puts error in run.completed event)
+      let trackedError: string | null = null;
+      const unsubscribe = this.eventBus.subscribeAll((event) => {
+        if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
+          const eventRunId = (event as any).runId || (event as any).aggregateId;
+          if (eventRunId === runId) {
+            trackedError = (event as any).data?.error || null;
+          }
         }
-      }
+      });
       
       const result = await handle.completed;
+      unsubscribe();
       this.agentToolkit.recordTimelineEvent(runId, 'step.completed', { step: 0 });
 
       const durationMs = Date.now() - runStartedAt;
 
       // Check if the run failed
-      const hasError = !result || (result as any).error || (result as any).status === 'failed' || capturedError;
+      const hasError = !result || (result as any).error || (result as any).status === 'failed' || trackedError;
       
       if (hasError) {
-        // Use captured error from events stream, fallback to result fields
-        const rawError = capturedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
+        // Use tracked error from EventBus, fallback to result fields
+        const rawError = trackedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
         const errorMsg = extractActualErrorMessage(rawError);
         
         this.logger.error(`Agent run failed for session ${sessionId}`, errorMsg);
