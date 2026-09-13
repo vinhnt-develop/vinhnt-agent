@@ -1,6 +1,6 @@
 import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsObject } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Expose, Transform } from 'class-transformer';
+import { Expose } from 'class-transformer';
 
 export class CreateProviderConfigDto {
   @ApiProperty({ description: 'Provider identifier', example: 'openai' })
@@ -85,9 +85,7 @@ export class ProviderConfigResponseDto {
   @Expose() pricing?: Record<string, unknown>;
   @Expose() isActive?: boolean;
   @Expose() isDefault?: boolean;
-  @Expose()
-  @Transform(({ obj }) => !!obj.apiKey && obj.apiKey.length > 0)
-  hasApiKey?: boolean;
+  @Expose() hasApiKey?: boolean;
   @Expose() createdAt?: string;
   @Expose() updatedAt?: string;
 }

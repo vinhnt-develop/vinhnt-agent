@@ -11,60 +11,10 @@ import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
+import { extractActualErrorMessage } from '@/shared/error-utils';
 
-/**
- * Extract human-readable error message from any error type.
- * Preserves the original message without wrapping.
- */
-function extractActualErrorMessage(error: unknown): string {
-  if (!error) return 'Unknown error';
-  
-  // If it's already an Error instance, use message directly
-  if (error instanceof Error) {
-    return error.message;
-  }
-  
-  // If it's a string, try to parse as JSON to extract nested message
-  if (typeof error === 'string') {
-    try {
-      const parsed = JSON.parse(error);
-      return extractActualErrorMessage(parsed);
-    } catch {
-      return error;
-    }
-  }
-  
-  // If it's an object, try to extract message from nested structures
-  if (typeof error === 'object' && error !== null) {
-    const obj = error as Record<string, unknown>;
-    
-    // Google API format: { error: { error: { message: "..." } } }
-    if (obj.error && typeof obj.error === 'object') {
-      const innerError = obj.error as Record<string, unknown>;
-      if (innerError.error && typeof innerError.error === 'object') {
-        const deepError = innerError.error as Record<string, unknown>;
-        if (typeof deepError.message === 'string') return deepError.message;
-      }
-      // OpenAI format: { error: { message: "..." } }
-      if (typeof innerError.message === 'string') return innerError.message;
-      // Plain error string: { error: "..." }
-      if (typeof innerError.error === 'string') return innerError.error;
-    }
-    
-    // Direct message: { message: "..." }
-    if (typeof obj.message === 'string') return obj.message;
-    
-    // VntError/KernelError serialized: { name: "...", message: "...", code: "..." }
-    if (typeof obj.message === 'string') return obj.message;
-  }
-  
-  // Fallback: stringify and return
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
-}
+/** Maximum age (ms) for runError entries before automatic cleanup. */
+const RUN_ERROR_TTL_MS = 5 * 60 * 1000;
 
 @WebSocketGateway({
   cors: { origin: '*' },
@@ -83,8 +33,11 @@ export class AgentGateway
   private readonly logger = new Logger(AgentGateway.name);
   private unsubscribe?: () => void;
 
-  // Track error messages per runId from EventBus (emitFail puts error in run.completed event)
-  private runErrors = new Map<string, string>();
+  /** Track error messages per runId with timestamp for TTL cleanup. */
+  private runErrors = new Map<string, { error: string; timestamp: number }>();
+
+  /** Map runId → socket ID for targeted event emission. */
+  private runToClient = new Map<string, string>();
 
   constructor(
     private readonly agentService: AgentService,
@@ -94,16 +47,30 @@ export class AgentGateway
   onModuleInit() {
     const eventBus = this.agentService.getEventBus();
     this.unsubscribe = eventBus.subscribeAll((event) => {
-      this.server?.emit('agent:event', event);
+      const runId = (event as any).aggregateId as string | undefined;
+      if (!runId) return;
+
+      // Route event to the specific client subscribed to this run
+      const clientId = this.runToClient.get(runId);
+      if (!clientId) return;
+
+      const transformed = this.transformEvent(event, runId);
+      if (transformed) {
+        this.server?.to(clientId).emit('run:event', transformed);
+      }
+
       // Track errors per runId from EventBus
       if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
-        const runId = (event as any).runId || (event as any).aggregateId;
         const error = (event as any).data?.error;
-        if (runId && error) {
-          this.runErrors.set(runId, error);
+        if (error) {
+          this.runErrors.set(runId, { error, timestamp: Date.now() });
         }
       }
     });
+
+    // Periodic cleanup of stale runErrors entries
+    setInterval(() => this.cleanupRunErrors(), 60_000);
+
     this.logger.log('AgentGateway subscribed to EventBus');
   }
 
@@ -117,6 +84,12 @@ export class AgentGateway
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
+    // Clean up runToClient mappings for this client
+    for (const [runId, clientId] of this.runToClient.entries()) {
+      if (clientId === client.id) {
+        this.runToClient.delete(runId);
+      }
+    }
   }
 
   @SubscribeMessage('run')
@@ -138,6 +111,9 @@ export class AgentGateway
     try {
       const { handle, runId } = await this.agentService.runAgentStreaming(data);
       const runStartedAt = Date.now();
+
+      // Map runId → client for EventBus routing
+      this.runToClient.set(runId, client.id);
 
       client.emit('run:started', { runId });
 
@@ -173,14 +149,14 @@ export class AgentGateway
       const durationMs = Date.now() - runStartedAt;
 
       // Get error from EventBus tracking (emitFail puts error there)
-      const trackedError = this.runErrors.get(runId);
-      if (trackedError) this.runErrors.delete(runId);
+      const trackedEntry = this.runErrors.get(runId);
+      const trackedError = trackedEntry?.error;
+      if (trackedEntry) this.runErrors.delete(runId);
 
       // Check if the run failed
       const hasError = !result || (result as any).error || (result as any).status === 'failed' || trackedError;
       
       if (hasError) {
-        // Use tracked error from EventBus, fallback to result fields
         const rawError = trackedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
         const errorMsg = extractActualErrorMessage(rawError);
         
@@ -235,5 +211,66 @@ export class AgentGateway
   ) {
     const messages = await this.agentService.getSessionMessages(data.sessionId);
     client.emit('messages', messages);
+  }
+
+  /**
+   * Transform SDK EventBus events into webui-compatible format.
+   * Maps token.streamed → text, preserves tool events, etc.
+   */
+  private transformEvent(event: any, runId: string): Record<string, unknown> | null {
+    const type = event.type as string;
+    const data = event.data;
+
+    switch (type) {
+      case 'token.streamed':
+        return {
+          type: 'text',
+          content: data?.content ?? data?.delta ?? '',
+          runId,
+        };
+      case 'tool.invoked':
+        return {
+          type: 'tool.invoked',
+          toolName: data?.toolName,
+          input: data?.input,
+          runId,
+        };
+      case 'tool.completed':
+        return {
+          type: 'tool.completed',
+          toolName: data?.toolName,
+          output: data?.output,
+          runId,
+        };
+      case 'tool.failed':
+        return {
+          type: 'tool.failed',
+          toolName: data?.toolName,
+          error: data?.error,
+          runId,
+        };
+      case 'thinking.content':
+        return {
+          type: 'thinking',
+          content: data?.content,
+          runId,
+        };
+      default:
+        // Forward other run-relevant events as-is
+        if (type.startsWith('run.') || type.startsWith('step.') || type.startsWith('tool.') || type.startsWith('thinking.')) {
+          return { type, data, runId };
+        }
+        return null;
+    }
+  }
+
+  /** Remove runErrors entries older than TTL. */
+  private cleanupRunErrors() {
+    const now = Date.now();
+    for (const [runId, entry] of this.runErrors.entries()) {
+      if (now - entry.timestamp > RUN_ERROR_TTL_MS) {
+        this.runErrors.delete(runId);
+      }
+    }
   }
 }

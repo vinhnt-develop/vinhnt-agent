@@ -6,34 +6,46 @@ import {
 } from '@/infrastructure/config/json-config-store';
 import { PROVIDERS_CONFIG } from '@/infrastructure/config/config.module';
 
+export type ProviderConfigWithApiKey = ProviderJsonConfig & { hasApiKey: boolean };
+
+function enrichHasApiKey(config: ProviderJsonConfig): ProviderConfigWithApiKey {
+  return {
+    ...config,
+    hasApiKey: !!config.apiKey && config.apiKey.length > 0,
+  };
+}
+
 @Injectable()
 export class ProviderConfigRepository {
   constructor(
     @Inject(PROVIDERS_CONFIG) private readonly configStore: JsonConfigStore<ProviderJsonConfig>,
   ) {}
 
-  async findById(id: string) {
-    return this.configStore.findById(id) || null;
+  async findById(id: string): Promise<ProviderConfigWithApiKey | null> {
+    const config = this.configStore.findById(id);
+    return config ? enrichHasApiKey(config) : null;
   }
 
-  async findAll() {
-    return this.configStore.findAll();
+  async findAll(): Promise<ProviderConfigWithApiKey[]> {
+    return this.configStore.findAll().map(enrichHasApiKey);
   }
 
-  async findEnabled() {
-    return this.configStore.findAll().filter((c) => c.isActive);
+  async findEnabled(): Promise<ProviderConfigWithApiKey[]> {
+    return this.configStore.findAll().filter((c) => c.isActive).map(enrichHasApiKey);
   }
 
-  async findDefault() {
-    return this.configStore.findAll().find((c) => c.isDefault && c.isActive) || null;
+  async findDefault(): Promise<ProviderConfigWithApiKey | null> {
+    const config = this.configStore.findAll().find((c) => c.isDefault && c.isActive) || null;
+    return config ? enrichHasApiKey(config) : null;
   }
 
-  async findByProvider(provider: string) {
-    return this.configStore.findAll().filter((c) => c.provider === provider);
+  async findByProvider(provider: string): Promise<ProviderConfigWithApiKey[]> {
+    return this.configStore.findAll().filter((c) => c.provider === provider).map(enrichHasApiKey);
   }
 
-  async findSingleByProvider(provider: string) {
-    return this.configStore.findAll().find((c) => c.provider === provider) || null;
+  async findSingleByProvider(provider: string): Promise<ProviderConfigWithApiKey | null> {
+    const config = this.configStore.findAll().find((c) => c.provider === provider) || null;
+    return config ? enrichHasApiKey(config) : null;
   }
 
   async create(data: {

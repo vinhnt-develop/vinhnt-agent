@@ -16,60 +16,7 @@ import {
 } from '@/infrastructure/model/provider-factory';
 import { AgentToolkit } from './agent-toolkit';
 import { AgentRunTrackingService } from './agent-run-tracking.service';
-
-/**
- * Extract human-readable error message from any error type.
- * Preserves the original message without wrapping.
- */
-function extractActualErrorMessage(error: unknown): string {
-  if (!error) return 'Unknown error';
-  
-  // If it's already an Error instance, use message directly
-  if (error instanceof Error) {
-    return error.message;
-  }
-  
-  // If it's a string, try to parse as JSON to extract nested message
-  if (typeof error === 'string') {
-    try {
-      const parsed = JSON.parse(error);
-      return extractActualErrorMessage(parsed);
-    } catch {
-      return error;
-    }
-  }
-  
-  // If it's an object, try to extract message from nested structures
-  if (typeof error === 'object' && error !== null) {
-    const obj = error as Record<string, unknown>;
-    
-    // Google API format: { error: { error: { message: "..." } } }
-    if (obj.error && typeof obj.error === 'object') {
-      const innerError = obj.error as Record<string, unknown>;
-      if (innerError.error && typeof innerError.error === 'object') {
-        const deepError = innerError.error as Record<string, unknown>;
-        if (typeof deepError.message === 'string') return deepError.message;
-      }
-      // OpenAI format: { error: { message: "..." } }
-      if (typeof innerError.message === 'string') return innerError.message;
-      // Plain error string: { error: "..." }
-      if (typeof innerError.error === 'string') return innerError.error;
-    }
-    
-    // Direct message: { message: "..." }
-    if (typeof obj.message === 'string') return obj.message;
-    
-    // VntError/KernelError serialized: { name: "...", message: "...", code: "..." }
-    if (typeof obj.message === 'string') return obj.message;
-  }
-  
-  // Fallback: stringify and return
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
-}
+import { extractActualErrorMessage } from '@/shared/error-utils';
 
 export interface RunAgentInput {
   sessionId: string;
@@ -94,6 +41,8 @@ export class AgentService {
     string,
     { kernel: any; lastAccess: number }
   >();
+  /** Active run handles keyed by runId for run-specific cancellation. */
+  private activeHandles = new Map<string, { cancel: () => void; isCancelled: boolean }>();
   private readonly maxKernelCacheSize: number;
   private readonly eventBus = new InMemoryEventBus();
   private readonly tokenMeter = new TokenMeter();
@@ -323,13 +272,27 @@ export class AgentService {
     const kernel = await this.getKernel(model, provider);
     const ctx = this.buildRequestContext(provider, model);
     const handle = kernel.createRunHandle(prompt, ctx, sessionId);
+
+    // Store handle for run-specific cancellation
+    this.activeHandles.set(runId, handle);
+
+    // Clean up handle when run completes
+    handle.completed.then(
+      () => this.activeHandles.delete(runId),
+      () => this.activeHandles.delete(runId),
+    );
+
     return { handle, runId };
   }
 
-  async cancelRun(_runId: string): Promise<void> {
-    const kernel = await this.getKernel();
-    kernel.cancelCurrentRun();
-    this.logger.log(`Cancelled run: ${_runId}`);
+  async cancelRun(runId: string): Promise<void> {
+    const handle = this.activeHandles.get(runId);
+    if (handle && !handle.isCancelled) {
+      handle.cancel();
+      this.logger.log(`Cancelled run: ${runId}`);
+    } else {
+      this.logger.warn(`No active handle found for run: ${runId}`);
+    }
   }
 
   async getSessionMessages(sessionId: string) {

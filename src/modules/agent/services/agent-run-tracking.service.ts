@@ -2,10 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AgentRunRepository } from '../repositories/agent-run.repository';
 import { ToolExecutionRepository } from '../repositories/tool-execution.repository';
 
+interface PendingToolExecution {
+  id: string;
+  startedAt: number;
+  toolName: string;
+}
+
 @Injectable()
 export class AgentRunTrackingService {
   private readonly logger = new Logger(AgentRunTrackingService.name);
-  private readonly pendingToolExecutions = new Map<string, { id: string; startedAt: number }>();
+  /** Pending tool executions keyed by unique invocation ID. */
+  private readonly pendingToolExecutions = new Map<string, PendingToolExecution>();
 
   constructor(
     private readonly agentRunRepository: AgentRunRepository,
@@ -83,9 +90,11 @@ export class AgentRunTrackingService {
         status: 'running',
         startedAt: new Date().toISOString(),
       });
-      this.pendingToolExecutions.set(`${data.runId}:${data.toolName}`, {
+      // Use unique ID as key — supports concurrent calls of the same tool
+      this.pendingToolExecutions.set(id, {
         id,
         startedAt: Date.now(),
+        toolName: data.toolName,
       });
       this.logger.debug(`Tool execution started: ${data.toolName} id=${id}`);
       return id;
@@ -103,9 +112,18 @@ export class AgentRunTrackingService {
     errorMessage?: string;
   }): void {
     try {
-      const key = `${data.runId}:${data.toolName}`;
-      const pending = this.pendingToolExecutions.get(key);
-      if (!pending) return;
+      // Find the oldest pending execution for this toolName (FIFO)
+      let oldestKey: string | null = null;
+      let oldestTime = Infinity;
+      for (const [key, entry] of this.pendingToolExecutions) {
+        if (entry.toolName === data.toolName && entry.startedAt < oldestTime) {
+          oldestTime = entry.startedAt;
+          oldestKey = key;
+        }
+      }
+
+      if (!oldestKey) return;
+      const pending = this.pendingToolExecutions.get(oldestKey)!;
 
       const durationMs = Date.now() - pending.startedAt;
       this.toolExecutionRepository.update(pending.id, {
@@ -115,7 +133,7 @@ export class AgentRunTrackingService {
         durationMs,
         completedAt: new Date().toISOString(),
       });
-      this.pendingToolExecutions.delete(key);
+      this.pendingToolExecutions.delete(oldestKey);
       this.logger.debug(`Tool execution completed: ${data.toolName} duration=${durationMs}ms`);
     } catch (error) {
       this.logger.warn(`Failed to track tool completion: ${error}`);
