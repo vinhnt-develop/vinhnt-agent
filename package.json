@@ -34,7 +34,7 @@
     "@nestjs/websockets": "^11.2.3",
     "@vinhnt-sdk/config": "0.1.5",
     "@vinhnt-sdk/core": "0.2.0",
-    "@vinhnt-sdk/event": "0.1.3",
+    "@vinhnt-sdk/event": "0.1.4",
     "@vinhnt-sdk/guard": "0.1.4",
     "@vinhnt-sdk/knowledge": "0.1.3",
     "@vinhnt-sdk/llm": "0.1.6",
