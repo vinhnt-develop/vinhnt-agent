@@ -104,13 +104,16 @@ export class AgentGateway
       workspaceId?: string;
     },
   ) {
+    const runStartedAt = Date.now();
+    let eventCount = 0;
+    let toolCallCount = 0;
+
     this.logger.log(
-      `Run requested by ${client.id} for session ${data.sessionId}`,
+      `Run requested | client=${client.id} session=${data.sessionId} model=${data.model ?? 'default'}`,
     );
 
     try {
       const { handle, runId } = await this.agentService.runAgentStreaming(data);
-      const runStartedAt = Date.now();
 
       // Map runId → client for EventBus routing
       this.runToClient.set(runId, client.id);
@@ -120,8 +123,10 @@ export class AgentGateway
       // Stream events to client + track tool executions
       for await (const event of handle.events()) {
         client.emit('run:event', event);
+        eventCount++;
 
         if (event.type === 'tool.invoked') {
+          toolCallCount++;
           this.trackingService.startToolExecution({
             runId,
             sessionId: data.sessionId,
@@ -160,7 +165,9 @@ export class AgentGateway
         const rawError = trackedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
         const errorMsg = extractActualErrorMessage(rawError);
         
-        this.logger.error(`Run failed for session ${data.sessionId}:`, errorMsg);
+        this.logger.error(
+          `Run FAILED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} error=${errorMsg}`,
+        );
         
         this.trackingService.completeRun({
           runId,
@@ -173,11 +180,16 @@ export class AgentGateway
           error: errorMsg,
         });
       } else {
+        const tokens = result?.usage;
+        this.logger.log(
+          `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} tokens=${tokens?.promptTokens ?? 0}+${tokens?.completionTokens ?? 0}`,
+        );
+
         this.trackingService.completeRun({
           runId,
           status: 'succeeded',
-          inputTokens: result?.usage?.promptTokens,
-          outputTokens: result?.usage?.completionTokens,
+          inputTokens: tokens?.promptTokens,
+          outputTokens: tokens?.completionTokens,
           totalCost: result?.cost,
           durationMs,
           toolCallsCount: result?.toolCalls?.length,
@@ -185,9 +197,15 @@ export class AgentGateway
 
         client.emit('run:completed', result);
       }
+
+      // Cleanup
+      this.runToClient.delete(runId);
     } catch (error) {
+      const durationMs = Date.now() - runStartedAt;
       const errorMsg = extractActualErrorMessage(error);
-      this.logger.error(`Run failed for ${client.id}`, errorMsg);
+      this.logger.error(
+        `Run ERROR | client=${client.id} session=${data.sessionId} duration=${durationMs}ms error=${errorMsg}`,
+      );
       client.emit('run:error', {
         error: errorMsg,
       });
