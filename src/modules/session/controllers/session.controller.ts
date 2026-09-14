@@ -16,10 +16,10 @@ import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
 import { SessionService } from '../services/session.service';
 import { TrajectoryService } from '../services/trajectory.service';
-import { CreateSessionDto, UpdateSessionDto, CreateMessageDto, SessionResponseDto, MessageResponseDto } from '../dto';
+import { CreateSessionDto, UpdateSessionDto, CreateMessageDto, SessionResponseDto, MessageResponseDto, TrajectoryResponseDto } from '../dto';
 
 @ApiTags('Session')
-@ApiExtraModels(CreateSessionDto, UpdateSessionDto, CreateMessageDto, SessionResponseDto, MessageResponseDto)
+@ApiExtraModels(CreateSessionDto, UpdateSessionDto, CreateMessageDto, SessionResponseDto, MessageResponseDto, TrajectoryResponseDto)
 @Controller({ path: 'sessions', version: '1' })
 export class SessionController {
   constructor(
@@ -109,8 +109,9 @@ export class SessionController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get session trajectory (runs, tool calls, events, stats)' })
   @ApiParam({ name: 'id', type: 'string' })
-  async getTrajectory(@Param('id') id: string) {
+  @ApiDataResponse(TrajectoryResponseDto)
+  async getTrajectory(@Param('id') id: string): Promise<ApiResponse<TrajectoryResponseDto>> {
     const trajectory = await this.trajectoryService.getTrajectory(id);
-    return formatResponse.single(null, trajectory, 'Trajectory retrieved successfully.');
+    return formatResponse.single(TrajectoryResponseDto, trajectory, 'Trajectory retrieved successfully.');
   }
 }

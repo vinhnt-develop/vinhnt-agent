@@ -156,32 +156,15 @@ export class AgentService {
 
     try {
       this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
-      const handle = kernel.run(prompt, ctx, sessionId);
-      
-      // Track error from EventBus (emitFail puts error in run.completed event)
-      let trackedError: string | null = null;
-      const unsubscribe = this.eventBus.subscribeAll((event) => {
-        if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
-          const eventRunId = (event as any).runId || (event as any).aggregateId;
-          if (eventRunId === runId) {
-            trackedError = (event as any).data?.error || null;
-          }
-        }
-      });
+      const handle = kernel.createRunHandle(prompt, ctx, sessionId);
       
       const result = await handle.completed;
-      unsubscribe();
       this.agentToolkit.recordTimelineEvent(runId, 'step.completed', { step: 0 });
 
       const durationMs = Date.now() - runStartedAt;
 
-      // Check if the run failed
-      const hasError = !result || (result as any).error || (result as any).status === 'failed' || trackedError;
-      
-      if (hasError) {
-        // Use tracked error from EventBus, fallback to result fields
-        const rawError = trackedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
-        const errorMsg = extractActualErrorMessage(rawError);
+      if (result.status === 'failed') {
+        const errorMsg = extractActualErrorMessage(result.error || 'Agent run failed');
         
         this.logger.error(`Agent run failed for session ${sessionId}`, errorMsg);
         this.agentToolkit.recordTimelineEvent(runId, 'run.failed', {
@@ -213,19 +196,19 @@ export class AgentService {
       this.trackingService.completeRun({
         runId,
         status: 'succeeded',
-        inputTokens: lastAssistantMsg?.tokens?.input,
-        outputTokens: lastAssistantMsg?.tokens?.output,
+        inputTokens: result.inputTokens || lastAssistantMsg?.tokens?.input,
+        outputTokens: result.outputTokens || lastAssistantMsg?.tokens?.output,
         reasoningTokens: lastAssistantMsg?.tokens?.reasoning,
         totalCost: lastAssistantMsg?.cost,
-        durationMs,
+        durationMs: result.durationMs || durationMs,
         metadata: { model: lastAssistantMsg?.model, provider: lastAssistantMsg?.provider },
       });
 
       return {
         runId,
         status: 'succeeded',
-        output: lastAssistantMsg?.content,
-        totalSteps: 0,
+        output: result.output || lastAssistantMsg?.content,
+        totalSteps: result.totalSteps,
         provider: lastAssistantMsg?.provider,
         model: lastAssistantMsg?.model,
       };

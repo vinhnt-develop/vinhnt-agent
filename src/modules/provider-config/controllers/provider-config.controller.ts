@@ -85,6 +85,7 @@ export class ProviderConfigController {
             provider: config.provider,
             providerName: definition.name,
             configured: true,
+            isActive: config.isActive,
             models: [],
             error: `Failed to fetch models: ${response.status}`,
           });
@@ -97,6 +98,7 @@ export class ProviderConfigController {
           provider: config.provider,
           providerName: definition.name,
           configured: true,
+          isActive: config.isActive,
           models,
         });
       } catch (error) {
@@ -104,6 +106,7 @@ export class ProviderConfigController {
           provider: config.provider,
           providerName: definition.name,
           configured: true,
+          isActive: config.isActive,
           models: [],
           error: `Failed to fetch models: ${error}`,
         });

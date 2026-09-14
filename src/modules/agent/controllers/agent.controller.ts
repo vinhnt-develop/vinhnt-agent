@@ -20,9 +20,10 @@ import type { ApiResponse } from '@/common/interfaces';
 import { AgentService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { TrajectoryService } from '@/modules/session/services/trajectory.service';
+import { TrajectoryResponseDto } from '@/modules/session/dto';
 
 @ApiTags('Agent')
-@ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto)
+@ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto, TrajectoryResponseDto)
 @Controller({ path: 'agent', version: '1' })
 export class AgentController {
   constructor(
@@ -55,9 +56,10 @@ export class AgentController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get session trajectory (runs, tool calls, events, stats)' })
   @ApiParam({ name: 'sessionId', type: 'string' })
-  async getTrajectory(@Param('sessionId') sessionId: string) {
+  @ApiDataResponse(TrajectoryResponseDto)
+  async getTrajectory(@Param('sessionId') sessionId: string): Promise<ApiResponse<TrajectoryResponseDto>> {
     const trajectory = await this.trajectoryService.getTrajectory(sessionId);
-    return formatResponse.single(null, trajectory, 'Trajectory retrieved successfully.');
+    return formatResponse.single(TrajectoryResponseDto, trajectory, 'Trajectory retrieved successfully.');
   }
 
   @Get('stats')

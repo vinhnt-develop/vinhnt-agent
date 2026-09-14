@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { validateMessage } from '@/common/helpers';
 import { VALIDATE_CODES } from '@/common/constants';
 import {
@@ -8,28 +8,30 @@ import {
   MaxLength,
   IsOptional,
 } from 'class-validator';
+import { Expose } from 'class-transformer';
 
 export class RunAgentDto {
   @ApiProperty({
-    name: 'sessionId',
+    name: 'session_id',
     type: 'string',
     description: 'Session ID to run agent in',
     example: '123e4567-e89b-12d3-a456-426614174000',
   })
   @IsString({
-    message: validateMessage.string('sessionId'),
+    message: validateMessage.string('session_id'),
     context: {
       errorCode: VALIDATE_CODES.AGENT_SESSION_ID_STRING,
-      field: 'sessionId',
+      field: 'session_id',
     },
   })
   @IsNotEmpty({
-    message: validateMessage.required('sessionId'),
+    message: validateMessage.required('session_id'),
     context: {
       errorCode: VALIDATE_CODES.AGENT_SESSION_ID_EMPTY,
-      field: 'sessionId',
+      field: 'session_id',
     },
   })
+  @Expose({ name: 'session_id' })
   sessionId!: string;
 
   @ApiProperty({
@@ -62,29 +64,29 @@ export class RunAgentDto {
       max: 100000,
     },
   })
+  @Expose({ name: 'prompt' })
   prompt!: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     name: 'model',
     type: 'string',
     description: 'Model override (optional)',
     example: 'gpt-4o',
-    required: false,
   })
   @IsString({
     message: validateMessage.string('model'),
     context: { errorCode: VALIDATE_CODES.AGENT_MODEL_STRING, field: 'model' },
   })
   @IsOptional()
+  @Expose({ name: 'model' })
   model?: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     name: 'provider',
     type: 'string',
     description:
       'Provider override — selects which registered provider handles this request (optional)',
     example: 'openai',
-    required: false,
   })
   @IsString({
     message: validateMessage.string('provider'),
@@ -94,22 +96,23 @@ export class RunAgentDto {
     },
   })
   @IsOptional()
+  @Expose({ name: 'provider' })
   provider?: string;
 
-  @ApiProperty({
-    name: 'workspaceId',
+  @ApiPropertyOptional({
+    name: 'workspace_id',
     type: 'string',
     description: 'Workspace ID for context isolation (optional)',
     example: '123e4567-e89b-12d3-a456-426614174000',
-    required: false,
   })
   @IsString({
-    message: validateMessage.string('workspaceId'),
+    message: validateMessage.string('workspace_id'),
     context: {
       errorCode: VALIDATE_CODES.WORKSPACE_ID_STRING,
-      field: 'workspaceId',
+      field: 'workspace_id',
     },
   })
   @IsOptional()
+  @Expose({ name: 'workspace_id' })
   workspaceId?: string;
 }

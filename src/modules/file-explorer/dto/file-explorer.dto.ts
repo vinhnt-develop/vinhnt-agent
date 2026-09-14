@@ -1,5 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsOptional } from 'class-validator';
+import { Expose } from 'class-transformer';
 
 export class FileTreeQueryDto {
   @ApiPropertyOptional({
@@ -10,6 +11,7 @@ export class FileTreeQueryDto {
   })
   @IsOptional()
   @IsString()
+  @Expose({ name: 'path' })
   path?: string;
 }
 
@@ -21,5 +23,6 @@ export class FileContentQueryDto {
     description: 'Relative path to the file',
   })
   @IsString()
+  @Expose({ name: 'path' })
   path!: string;
 }

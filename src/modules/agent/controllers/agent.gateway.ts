@@ -122,7 +122,6 @@ export class AgentGateway
 
       // Stream events to client + track tool executions
       for await (const event of handle.events()) {
-        client.emit('run:event', event);
         eventCount++;
 
         if (event.type === 'tool.invoked') {

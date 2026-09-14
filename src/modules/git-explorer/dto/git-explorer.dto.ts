@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsString, IsOptional, IsInt, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Expose } from 'class-transformer';
 
 export class GitDiffQueryDto {
   @ApiPropertyOptional({
@@ -11,6 +11,7 @@ export class GitDiffQueryDto {
   })
   @IsOptional()
   @IsString()
+  @Expose({ name: 'path' })
   path?: string;
 }
 
@@ -26,5 +27,6 @@ export class GitLogQueryDto {
   @IsInt()
   @Min(1)
   @Max(100)
+  @Expose({ name: 'limit' })
   limit?: number;
 }

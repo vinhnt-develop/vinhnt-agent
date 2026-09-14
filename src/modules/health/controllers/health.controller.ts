@@ -1,7 +1,7 @@
 import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
-import { HealthCheckResponse } from '../dto';
+import { HealthCheckResponseDto, LivenessResponseDto, ReadinessResponseDto } from '../dto';
 
 @ApiTags('Health')
 @Controller('health')
@@ -13,9 +13,9 @@ export class HealthController {
 
   @Get()
   @ApiOperation({ summary: 'Health check endpoint' })
-  @ApiResponse({ status: 200, description: 'Service is healthy' })
+  @ApiResponse({ status: 200, description: 'Service is healthy', type: HealthCheckResponseDto })
   @ApiResponse({ status: 503, description: 'Service is unhealthy' })
-  async check(): Promise<HealthCheckResponse> {
+  async check(): Promise<HealthCheckResponseDto> {
     const dbOk = await this.checkDatabase();
 
     return {
@@ -29,13 +29,15 @@ export class HealthController {
 
   @Get('live')
   @ApiOperation({ summary: 'Liveness probe' })
-  alive(): { status: string } {
+  @ApiResponse({ status: 200, description: 'Service is alive', type: LivenessResponseDto })
+  alive(): LivenessResponseDto {
     return { status: 'ok' };
   }
 
   @Get('ready')
   @ApiOperation({ summary: 'Readiness probe' })
-  async ready(): Promise<{ status: string }> {
+  @ApiResponse({ status: 200, description: 'Service is ready', type: ReadinessResponseDto })
+  async ready(): Promise<ReadinessResponseDto> {
     const dbOk = await this.checkDatabase();
     if (!dbOk) throw new Error('Database not connected');
     return { status: 'ok' };
