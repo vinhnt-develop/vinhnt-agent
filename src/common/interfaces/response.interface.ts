@@ -16,7 +16,7 @@ export interface ApiSuccessResponse<T> {
 export interface ApiErrorResponse {
   status: 'error' | 'fail';
   message: string;
-  error_code?: string;
+  errorCode?: string;
   details?: Record<string, any>;
 }
 

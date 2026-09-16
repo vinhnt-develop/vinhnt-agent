@@ -23,7 +23,7 @@ import {
 import { GitDiffQueryDto, GitLogQueryDto } from '../dto';
 
 @ApiTags('Git Explorer')
-@ApiExtraModels(GitStatusFileResponseDto, GitLogEntryResponseDto, GitDiffResponseDto)
+@ApiExtraModels(GitDiffQueryDto, GitLogQueryDto, GitStatusFileResponseDto, GitLogEntryResponseDto, GitDiffResponseDto)
 @Controller({ path: 'git', version: '1' })
 export class GitExplorerController {
   constructor(

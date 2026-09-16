@@ -53,7 +53,7 @@ export const formatResponse = {
     const totalItems = total ?? data.length;
 
     const meta: MetaData = {
-      totalItems,
+      totalItems: total ?? data.length,
       itemCount: Math.min(size, totalItems),
       itemsPerPage: size,
       totalPages: Math.ceil(totalItems / size),

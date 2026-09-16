@@ -17,7 +17,7 @@ import { WorkspaceService } from '../services/workspace.service';
 import { CreateWorkspaceDto, UpdateWorkspaceDto, WorkspaceResponseDto } from '../dto';
 
 @ApiTags('Workspace')
-@ApiExtraModels(CreateWorkspaceDto, UpdateWorkspaceDto)
+@ApiExtraModels(CreateWorkspaceDto, UpdateWorkspaceDto, WorkspaceResponseDto)
 @Controller({ path: 'workspaces', version: '1' })
 export class WorkspaceController {
   constructor(private readonly workspaceService: WorkspaceService) {}

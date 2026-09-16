@@ -1,149 +1,149 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Expose, Transform, Type } from 'class-transformer';
+import { Expose, Type } from 'class-transformer';
 
 export class ProviderCapabilitiesDto {
-  @ApiPropertyOptional({ description: 'Supports vision/image input', example: false })
+  @ApiPropertyOptional({ name: 'vision', type: Boolean, description: 'Supports vision/image input', example: false })
   @Expose({ name: 'vision' })
   vision?: boolean;
 
-  @ApiPropertyOptional({ description: 'Supports tool/function calling', example: true })
-  @Expose({ name: 'tool_calling' })
+  @ApiPropertyOptional({ name: 'toolCalling', type: Boolean, description: 'Supports tool/function calling', example: true })
+  @Expose({ name: 'toolCalling' })
   toolCalling?: boolean;
 
-  @ApiPropertyOptional({ description: 'Supports streaming responses', example: true })
+  @ApiPropertyOptional({ name: 'streaming', type: Boolean, description: 'Supports streaming responses', example: true })
   @Expose({ name: 'streaming' })
   streaming?: boolean;
 
-  @ApiPropertyOptional({ description: 'Supports thinking/reasoning tokens', example: false })
+  @ApiPropertyOptional({ name: 'thinking', type: Boolean, description: 'Supports thinking/reasoning tokens', example: false })
   @Expose({ name: 'thinking' })
   thinking?: boolean;
 
-  @ApiPropertyOptional({ description: 'Supports structured output', example: false })
-  @Expose({ name: 'structured_output' })
+  @ApiPropertyOptional({ name: 'structuredOutput', type: Boolean, description: 'Supports structured output', example: false })
+  @Expose({ name: 'structuredOutput' })
   structuredOutput?: boolean;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class SupportedProviderItemDto {
-  @ApiProperty({ description: 'Provider identifier', example: 'openai' })
+  @ApiProperty({ name: 'id', type: String, description: 'Provider identifier', example: 'openai' })
   @Expose({ name: 'id' })
   id!: string;
 
-  @ApiProperty({ description: 'Provider display name', example: 'OpenAI' })
+  @ApiProperty({ name: 'name', type: String, description: 'Provider display name', example: 'OpenAI' })
   @Expose({ name: 'name' })
   name!: string;
 
-  @ApiProperty({ description: 'Provider description', example: 'GPT-4o, GPT-4.1, o3, o4-mini' })
+  @ApiProperty({ name: 'description', type: String, description: 'Provider description', example: 'GPT-4o, GPT-4.1, o3, o4-mini' })
   @Expose({ name: 'description' })
   description!: string;
 
-  @ApiProperty({ description: 'Default base URL for API', example: 'https://api.openai.com/v1' })
-  @Expose({ name: 'default_base_url' })
+  @ApiProperty({ name: 'defaultBaseUrl', type: String, description: 'Default base URL for API', example: 'https://api.openai.com/v1' })
+  @Expose({ name: 'defaultBaseUrl' })
   defaultBaseUrl!: string;
 
-  @ApiProperty({ description: 'API format type', example: 'openai-chat' })
+  @ApiProperty({ name: 'format', type: String, description: 'API format type', example: 'openai-chat' })
   @Expose({ name: 'format' })
   format!: string;
 
-  @ApiProperty({ description: 'Whether API key is required', example: true })
-  @Expose({ name: 'requires_api_key' })
+  @ApiProperty({ name: 'requiresApiKey', type: Boolean, description: 'Whether API key is required', example: true })
+  @Expose({ name: 'requiresApiKey' })
   requiresApiKey!: boolean;
 
-  @ApiProperty({ description: 'Whether base URL is required', example: false })
-  @Expose({ name: 'requires_base_url' })
+  @ApiProperty({ name: 'requiresBaseUrl', type: Boolean, description: 'Whether base URL is required', example: false })
+  @Expose({ name: 'requiresBaseUrl' })
   requiresBaseUrl!: boolean;
 
-  @ApiProperty({ description: 'Adapter type', example: 'openai' })
-  @Expose({ name: 'adapter_type' })
+  @ApiProperty({ name: 'adapterType', type: String, description: 'Adapter type', example: 'openai' })
+  @Expose({ name: 'adapterType' })
   adapterType!: string;
 
-  @ApiProperty({ description: 'Models endpoint path', example: '/models' })
-  @Expose({ name: 'models_endpoint' })
+  @ApiProperty({ name: 'modelsEndpoint', type: String, description: 'Models endpoint path', example: '/models' })
+  @Expose({ name: 'modelsEndpoint' })
   modelsEndpoint!: string;
 
-  @ApiProperty({ description: 'Whether API key is configured', example: false })
-  @Expose({ name: 'has_api_key' })
+  @ApiProperty({ name: 'hasApiKey', type: Boolean, description: 'Whether API key is configured', example: false })
+  @Expose({ name: 'hasApiKey' })
   hasApiKey!: boolean;
 
-  @ApiProperty({ description: 'Whether provider is available', example: true })
-  @Expose({ name: 'is_available' })
+  @ApiProperty({ name: 'isAvailable', type: Boolean, description: 'Whether provider is available', example: true })
+  @Expose({ name: 'isAvailable' })
   isAvailable!: boolean;
 
-  @ApiPropertyOptional({ description: 'Provider capabilities', type: ProviderCapabilitiesDto })
+  @ApiPropertyOptional({ name: 'capabilities', type: ProviderCapabilitiesDto, description: 'Provider capabilities' })
   @Expose({ name: 'capabilities' })
   @Type(() => ProviderCapabilitiesDto)
   capabilities?: ProviderCapabilitiesDto;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class ProviderModelDto {
-  @ApiProperty({ description: 'Model identifier', example: 'gpt-4o' })
+  @ApiProperty({ name: 'id', type: String, description: 'Model identifier', example: 'gpt-4o' })
   @Expose({ name: 'id' })
   id!: string;
 
-  @ApiProperty({ description: 'Model display name', example: 'GPT-4o' })
+  @ApiProperty({ name: 'name', type: String, description: 'Model display name', example: 'GPT-4o' })
   @Expose({ name: 'name' })
   name!: string;
 
-  @ApiPropertyOptional({ description: 'Context window size', example: 128000 })
-  @Expose({ name: 'context_window' })
+  @ApiPropertyOptional({ name: 'contextWindow', type: Number, description: 'Context window size', example: 128000 })
+  @Expose({ name: 'contextWindow' })
   contextWindow?: number;
 
-  @ApiPropertyOptional({ description: 'Maximum output tokens', example: 4096 })
-  @Expose({ name: 'max_output_tokens' })
+  @ApiPropertyOptional({ name: 'maxOutputTokens', type: Number, description: 'Maximum output tokens', example: 4096 })
+  @Expose({ name: 'maxOutputTokens' })
   maxOutputTokens?: number;
 
-  @ApiPropertyOptional({ description: 'Model capabilities', type: ProviderCapabilitiesDto })
+  @ApiPropertyOptional({ name: 'capabilities', type: ProviderCapabilitiesDto, description: 'Model capabilities' })
   @Expose({ name: 'capabilities' })
   @Type(() => ProviderCapabilitiesDto)
   capabilities?: ProviderCapabilitiesDto;
 
-  @ApiPropertyOptional({ description: 'Whether model is deprecated', example: false })
+  @ApiPropertyOptional({ name: 'deprecated', type: Boolean, description: 'Whether model is deprecated', example: false })
   @Expose({ name: 'deprecated' })
   deprecated?: boolean;
 
-  @ApiPropertyOptional({ description: 'Deprecation date (ISO 8601)', example: '2026-12-31' })
-  @Expose({ name: 'deprecation_date' })
+  @ApiPropertyOptional({ name: 'deprecationDate', type: String, description: 'Deprecation date (ISO 8601)', example: '2026-12-31' })
+  @Expose({ name: 'deprecationDate' })
   deprecationDate?: string;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class ProviderModelsGroupDto {
-  @ApiProperty({ description: 'Provider identifier', example: 'openai' })
+  @ApiProperty({ name: 'provider', type: String, description: 'Provider identifier', example: 'openai' })
   @Expose({ name: 'provider' })
   provider!: string;
 
-  @ApiProperty({ description: 'Provider display name', example: 'OpenAI' })
-  @Expose({ name: 'provider_name' })
+  @ApiProperty({ name: 'providerName', type: String, description: 'Provider display name', example: 'OpenAI' })
+  @Expose({ name: 'providerName' })
   providerName!: string;
 
-  @ApiProperty({ description: 'Whether provider is configured', example: true })
+  @ApiProperty({ name: 'configured', type: Boolean, description: 'Whether provider is configured', example: true })
   @Expose({ name: 'configured' })
   configured!: boolean;
 
-  @ApiProperty({ description: 'Whether provider is active', example: true })
-  @Expose({ name: 'is_active' })
+  @ApiProperty({ name: 'isActive', type: Boolean, description: 'Whether provider is active', example: true })
+  @Expose({ name: 'isActive' })
   isActive!: boolean;
 
-  @ApiProperty({ description: 'List of models', type: [ProviderModelDto] })
+  @ApiProperty({ name: 'models', type: [ProviderModelDto], description: 'List of models' })
   @Expose({ name: 'models' })
   @Type(() => ProviderModelDto)
   models!: ProviderModelDto[];
 
-  @ApiPropertyOptional({ description: 'Error message if fetch failed', example: 'Failed to fetch models: 401' })
+  @ApiPropertyOptional({ name: 'error', type: String, description: 'Error message if fetch failed', example: 'Failed to fetch models: 401' })
   @Expose({ name: 'error' })
   error?: string;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }

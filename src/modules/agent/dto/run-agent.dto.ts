@@ -12,26 +12,26 @@ import { Expose } from 'class-transformer';
 
 export class RunAgentDto {
   @ApiProperty({
-    name: 'session_id',
+    name: 'sessionId',
     type: 'string',
     description: 'Session ID to run agent in',
     example: '123e4567-e89b-12d3-a456-426614174000',
   })
   @IsString({
-    message: validateMessage.string('session_id'),
+    message: validateMessage.string('sessionId'),
     context: {
       errorCode: VALIDATE_CODES.AGENT_SESSION_ID_STRING,
-      field: 'session_id',
+      field: 'sessionId',
     },
   })
   @IsNotEmpty({
-    message: validateMessage.required('session_id'),
+    message: validateMessage.required('sessionId'),
     context: {
       errorCode: VALIDATE_CODES.AGENT_SESSION_ID_EMPTY,
-      field: 'session_id',
+      field: 'sessionId',
     },
   })
-  @Expose({ name: 'session_id' })
+  @Expose({ name: 'sessionId' })
   sessionId!: string;
 
   @ApiProperty({
@@ -100,19 +100,19 @@ export class RunAgentDto {
   provider?: string;
 
   @ApiPropertyOptional({
-    name: 'workspace_id',
+    name: 'workspaceId',
     type: 'string',
     description: 'Workspace ID for context isolation (optional)',
     example: '123e4567-e89b-12d3-a456-426614174000',
   })
   @IsString({
-    message: validateMessage.string('workspace_id'),
+    message: validateMessage.string('workspaceId'),
     context: {
       errorCode: VALIDATE_CODES.WORKSPACE_ID_STRING,
-      field: 'workspace_id',
+      field: 'workspaceId',
     },
   })
   @IsOptional()
-  @Expose({ name: 'workspace_id' })
+  @Expose({ name: 'workspaceId' })
   workspaceId?: string;
 }

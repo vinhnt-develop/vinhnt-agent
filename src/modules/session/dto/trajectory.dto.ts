@@ -1,282 +1,282 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Expose, Transform, Type } from 'class-transformer';
+import { Expose, Type } from 'class-transformer';
 
 export class ContextBreakdownDto {
-  @ApiProperty({ description: 'User tokens', example: 1500 })
-  @Expose({ name: 'user_tokens' })
+  @ApiProperty({ name: 'userTokens', type: Number, description: 'User tokens', example: 1500 })
+  @Expose({ name: 'userTokens' })
   userTokens!: number;
 
-  @ApiProperty({ description: 'Assistant tokens', example: 2000 })
-  @Expose({ name: 'assistant_tokens' })
+  @ApiProperty({ name: 'assistantTokens', type: Number, description: 'Assistant tokens', example: 2000 })
+  @Expose({ name: 'assistantTokens' })
   assistantTokens!: number;
 
-  @ApiProperty({ description: 'Tool call tokens', example: 500 })
-  @Expose({ name: 'tool_call_tokens' })
+  @ApiProperty({ name: 'toolCallTokens', type: Number, description: 'Tool call tokens', example: 500 })
+  @Expose({ name: 'toolCallTokens' })
   toolCallTokens!: number;
 
-  @ApiProperty({ description: 'Other tokens', example: 100 })
-  @Expose({ name: 'other_tokens' })
+  @ApiProperty({ name: 'otherTokens', type: Number, description: 'Other tokens', example: 100 })
+  @Expose({ name: 'otherTokens' })
   otherTokens!: number;
 
-  @ApiProperty({ description: 'User percentage', example: 30 })
-  @Expose({ name: 'user_percent' })
+  @ApiProperty({ name: 'userPercent', type: Number, description: 'User percentage', example: 30 })
+  @Expose({ name: 'userPercent' })
   userPercent!: number;
 
-  @ApiProperty({ description: 'Assistant percentage', example: 40 })
-  @Expose({ name: 'assistant_percent' })
+  @ApiProperty({ name: 'assistantPercent', type: Number, description: 'Assistant percentage', example: 40 })
+  @Expose({ name: 'assistantPercent' })
   assistantPercent!: number;
 
-  @ApiProperty({ description: 'Tool call percentage', example: 10 })
-  @Expose({ name: 'tool_call_percent' })
+  @ApiProperty({ name: 'toolCallPercent', type: Number, description: 'Tool call percentage', example: 10 })
+  @Expose({ name: 'toolCallPercent' })
   toolCallPercent!: number;
 
-  @ApiProperty({ description: 'Other percentage', example: 20 })
-  @Expose({ name: 'other_percent' })
+  @ApiProperty({ name: 'otherPercent', type: Number, description: 'Other percentage', example: 20 })
+  @Expose({ name: 'otherPercent' })
   otherPercent!: number;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class TrajectoryStatsDto {
-  @ApiProperty({ description: 'Total runs', example: 10 })
-  @Expose({ name: 'total_runs' })
+  @ApiProperty({ name: 'totalRuns', type: Number, description: 'Total runs', example: 10 })
+  @Expose({ name: 'totalRuns' })
   totalRuns!: number;
 
-  @ApiProperty({ description: 'Total tool calls', example: 50 })
-  @Expose({ name: 'total_tool_calls' })
+  @ApiProperty({ name: 'totalToolCalls', type: Number, description: 'Total tool calls', example: 50 })
+  @Expose({ name: 'totalToolCalls' })
   totalToolCalls!: number;
 
-  @ApiProperty({ description: 'Total input tokens', example: 15000 })
-  @Expose({ name: 'total_input_tokens' })
+  @ApiProperty({ name: 'totalInputTokens', type: Number, description: 'Total input tokens', example: 15000 })
+  @Expose({ name: 'totalInputTokens' })
   totalInputTokens!: number;
 
-  @ApiProperty({ description: 'Total output tokens', example: 20000 })
-  @Expose({ name: 'total_output_tokens' })
+  @ApiProperty({ name: 'totalOutputTokens', type: Number, description: 'Total output tokens', example: 20000 })
+  @Expose({ name: 'totalOutputTokens' })
   totalOutputTokens!: number;
 
-  @ApiProperty({ description: 'Total reasoning tokens', example: 1000 })
-  @Expose({ name: 'total_reasoning_tokens' })
+  @ApiProperty({ name: 'totalReasoningTokens', type: Number, description: 'Total reasoning tokens', example: 1000 })
+  @Expose({ name: 'totalReasoningTokens' })
   totalReasoningTokens!: number;
 
-  @ApiProperty({ description: 'Total cost', example: 0.5 })
-  @Expose({ name: 'total_cost' })
+  @ApiProperty({ name: 'totalCost', type: Number, description: 'Total cost', example: 0.5 })
+  @Expose({ name: 'totalCost' })
   totalCost!: number;
 
-  @ApiProperty({ description: 'Total duration in milliseconds', example: 30000 })
-  @Expose({ name: 'total_duration_ms' })
+  @ApiProperty({ name: 'totalDurationMs', type: Number, description: 'Total duration in milliseconds', example: 30000 })
+  @Expose({ name: 'totalDurationMs' })
   totalDurationMs!: number;
 
-  @ApiProperty({ description: 'Succeeded runs', example: 8 })
-  @Expose({ name: 'succeeded_runs' })
+  @ApiProperty({ name: 'succeededRuns', type: Number, description: 'Succeeded runs', example: 8 })
+  @Expose({ name: 'succeededRuns' })
   succeededRuns!: number;
 
-  @ApiProperty({ description: 'Failed runs', example: 2 })
-  @Expose({ name: 'failed_runs' })
+  @ApiProperty({ name: 'failedRuns', type: Number, description: 'Failed runs', example: 2 })
+  @Expose({ name: 'failedRuns' })
   failedRuns!: number;
 
-  @ApiProperty({ description: 'Average duration in milliseconds', example: 3000 })
-  @Expose({ name: 'avg_duration_ms' })
+  @ApiProperty({ name: 'avgDurationMs', type: Number, description: 'Average duration in milliseconds', example: 3000 })
+  @Expose({ name: 'avgDurationMs' })
   avgDurationMs!: number;
 
-  @ApiProperty({ description: 'Context breakdown', type: ContextBreakdownDto })
-  @Expose({ name: 'context_breakdown' })
+  @ApiProperty({ name: 'contextBreakdown', type: ContextBreakdownDto, description: 'Context breakdown' })
+  @Expose({ name: 'contextBreakdown' })
   @Type(() => ContextBreakdownDto)
   contextBreakdown!: ContextBreakdownDto;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class TrajectoryTurnDto {
-  @ApiProperty({ description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
-  @Expose({ name: 'run_id' })
+  @ApiProperty({ name: 'runId', type: String, description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @Expose({ name: 'runId' })
   runId!: string;
 
-  @ApiProperty({ description: 'Run status', enum: ['succeeded', 'failed', 'cancelled'], example: 'succeeded' })
+  @ApiProperty({ name: 'status', type: String, description: 'Run status', enum: ['succeeded', 'failed', 'cancelled'], example: 'succeeded' })
   @Expose({ name: 'status' })
   status!: string;
 
-  @ApiPropertyOptional({ description: 'Model', example: 'gpt-4o' })
+  @ApiPropertyOptional({ name: 'model', type: String, description: 'Model', example: 'gpt-4o' })
   @Expose({ name: 'model' })
   model?: string;
 
-  @ApiPropertyOptional({ description: 'Provider', example: 'openai' })
+  @ApiPropertyOptional({ name: 'provider', type: String, description: 'Provider', example: 'openai' })
   @Expose({ name: 'provider' })
   provider?: string;
 
-  @ApiProperty({ description: 'Input tokens', example: 1500 })
-  @Expose({ name: 'input_tokens' })
+  @ApiProperty({ name: 'inputTokens', type: Number, description: 'Input tokens', example: 1500 })
+  @Expose({ name: 'inputTokens' })
   inputTokens!: number;
 
-  @ApiProperty({ description: 'Output tokens', example: 2000 })
-  @Expose({ name: 'output_tokens' })
+  @ApiProperty({ name: 'outputTokens', type: Number, description: 'Output tokens', example: 2000 })
+  @Expose({ name: 'outputTokens' })
   outputTokens!: number;
 
-  @ApiProperty({ description: 'Reasoning tokens', example: 100 })
-  @Expose({ name: 'reasoning_tokens' })
+  @ApiProperty({ name: 'reasoningTokens', type: Number, description: 'Reasoning tokens', example: 100 })
+  @Expose({ name: 'reasoningTokens' })
   reasoningTokens!: number;
 
-  @ApiProperty({ description: 'Total cost', example: 0.015 })
-  @Expose({ name: 'total_cost' })
+  @ApiProperty({ name: 'totalCost', type: Number, description: 'Total cost', example: 0.015 })
+  @Expose({ name: 'totalCost' })
   totalCost!: number;
 
-  @ApiProperty({ description: 'Duration in milliseconds', example: 5000 })
-  @Expose({ name: 'duration_ms' })
+  @ApiProperty({ name: 'durationMs', type: Number, description: 'Duration in milliseconds', example: 5000 })
+  @Expose({ name: 'durationMs' })
   durationMs!: number;
 
-  @ApiProperty({ description: 'Tool calls count', example: 5 })
-  @Expose({ name: 'tool_calls_count' })
+  @ApiProperty({ name: 'toolCallsCount', type: Number, description: 'Tool calls count', example: 5 })
+  @Expose({ name: 'toolCallsCount' })
   toolCallsCount!: number;
 
-  @ApiPropertyOptional({ description: 'Error message', example: 'API rate limit exceeded' })
-  @Expose({ name: 'error_message' })
+  @ApiPropertyOptional({ name: 'errorMessage', type: String, description: 'Error message', example: 'API rate limit exceeded' })
+  @Expose({ name: 'errorMessage' })
   errorMessage?: string;
 
-  @ApiPropertyOptional({ description: 'Start timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
-  @Expose({ name: 'started_at' })
+  @ApiPropertyOptional({ name: 'startedAt', type: String, description: 'Start timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
+  @Expose({ name: 'startedAt' })
   startedAt?: string;
 
-  @ApiPropertyOptional({ description: 'Completion timestamp (ISO 8601)', example: '2026-09-01T12:00:05.000Z' })
-  @Expose({ name: 'completed_at' })
+  @ApiPropertyOptional({ name: 'completedAt', type: String, description: 'Completion timestamp (ISO 8601)', example: '2026-09-01T12:00:05.000Z' })
+  @Expose({ name: 'completedAt' })
   completedAt?: string;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class TrajectoryToolCallDto {
-  @ApiProperty({ description: 'Tool call ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @ApiProperty({ name: 'id', type: String, description: 'Tool call ID', example: '123e4567-e89b-12d3-a456-426614174000' })
   @Expose({ name: 'id' })
   id!: string;
 
-  @ApiPropertyOptional({ description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
-  @Expose({ name: 'run_id' })
+  @ApiPropertyOptional({ name: 'runId', type: String, description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @Expose({ name: 'runId' })
   runId?: string;
 
-  @ApiProperty({ description: 'Tool name', example: 'read_file' })
-  @Expose({ name: 'tool_name' })
+  @ApiProperty({ name: 'toolName', type: String, description: 'Tool name', example: 'read_file' })
+  @Expose({ name: 'toolName' })
   toolName!: string;
 
-  @ApiProperty({ description: 'Tool input', type: 'object', additionalProperties: true, example: { path: 'src/main.ts' } })
-  @Expose({ name: 'tool_input' })
+  @ApiProperty({ name: 'toolInput', type: 'object', description: 'Tool input', additionalProperties: true, example: { path: 'src/main.ts' } })
+  @Expose({ name: 'toolInput' })
   toolInput!: Record<string, unknown>;
 
-  @ApiProperty({ description: 'Tool output', type: 'object', additionalProperties: true, example: { content: '...' } })
-  @Expose({ name: 'tool_output' })
+  @ApiProperty({ name: 'toolOutput', type: 'object', description: 'Tool output', additionalProperties: true, example: { content: '...' } })
+  @Expose({ name: 'toolOutput' })
   toolOutput!: Record<string, unknown>;
 
-  @ApiProperty({ description: 'Tool status', enum: ['completed', 'failed'], example: 'completed' })
+  @ApiProperty({ name: 'status', type: String, description: 'Tool status', enum: ['completed', 'failed'], example: 'completed' })
   @Expose({ name: 'status' })
   status!: string;
 
-  @ApiPropertyOptional({ description: 'Error message', example: 'File not found' })
-  @Expose({ name: 'error_message' })
+  @ApiPropertyOptional({ name: 'errorMessage', type: String, description: 'Error message', example: 'File not found' })
+  @Expose({ name: 'errorMessage' })
   errorMessage?: string;
 
-  @ApiProperty({ description: 'Duration in milliseconds', example: 500 })
-  @Expose({ name: 'duration_ms' })
+  @ApiProperty({ name: 'durationMs', type: Number, description: 'Duration in milliseconds', example: 500 })
+  @Expose({ name: 'durationMs' })
   durationMs!: number;
 
-  @ApiPropertyOptional({ description: 'Start timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
-  @Expose({ name: 'started_at' })
+  @ApiPropertyOptional({ name: 'startedAt', type: String, description: 'Start timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
+  @Expose({ name: 'startedAt' })
   startedAt?: string;
 
-  @ApiPropertyOptional({ description: 'Completion timestamp (ISO 8601)', example: '2026-09-01T12:00:00.500Z' })
-  @Expose({ name: 'completed_at' })
+  @ApiPropertyOptional({ name: 'completedAt', type: String, description: 'Completion timestamp (ISO 8601)', example: '2026-09-01T12:00:00.500Z' })
+  @Expose({ name: 'completedAt' })
   completedAt?: string;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class TrajectoryEventDto {
-  @ApiProperty({ description: 'Event ID', example: 1 })
+  @ApiProperty({ name: 'id', type: Number, description: 'Event ID', example: 1 })
   @Expose({ name: 'id' })
   id!: number;
 
-  @ApiProperty({ description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
-  @Expose({ name: 'run_id' })
+  @ApiProperty({ name: 'runId', type: String, description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @Expose({ name: 'runId' })
   runId!: string;
 
-  @ApiProperty({ description: 'Event type', example: 'token.streamed' })
+  @ApiProperty({ name: 'type', type: String, description: 'Event type', example: 'token.streamed' })
   @Expose({ name: 'type' })
   type!: string;
 
-  @ApiProperty({ description: 'Event sequence number', example: 5 })
+  @ApiProperty({ name: 'sequence', type: Number, description: 'Event sequence number', example: 5 })
   @Expose({ name: 'sequence' })
   sequence!: number;
 
-  @ApiProperty({ description: 'Event data', type: 'object', additionalProperties: true })
+  @ApiProperty({ name: 'data', type: 'object', description: 'Event data', additionalProperties: true })
   @Expose({ name: 'data' })
   data!: Record<string, unknown>;
 
-  @ApiPropertyOptional({ description: 'Trace ID', example: 'trace-123' })
-  @Expose({ name: 'trace_id' })
+  @ApiPropertyOptional({ name: 'traceId', type: String, description: 'Trace ID', example: 'trace-123' })
+  @Expose({ name: 'traceId' })
   traceId?: string;
 
-  @ApiPropertyOptional({ description: 'Occurred at timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
-  @Expose({ name: 'occurred_at' })
+  @ApiPropertyOptional({ name: 'occurredAt', type: String, description: 'Occurred at timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
+  @Expose({ name: 'occurredAt' })
   occurredAt?: string;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class TrajectorySessionDto {
-  @ApiProperty({ description: 'Session ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @ApiProperty({ name: 'id', type: String, description: 'Session ID', example: '123e4567-e89b-12d3-a456-426614174000' })
   @Expose({ name: 'id' })
   id!: string;
 
-  @ApiPropertyOptional({ description: 'Session title', example: 'Help with debugging' })
+  @ApiPropertyOptional({ name: 'title', type: String, description: 'Session title', example: 'Help with debugging' })
   @Expose({ name: 'title' })
   title?: string;
 
-  @ApiPropertyOptional({ description: 'Model', example: 'gpt-4o' })
+  @ApiPropertyOptional({ name: 'model', type: String, description: 'Model', example: 'gpt-4o' })
   @Expose({ name: 'model' })
   model?: string;
 
-  @ApiPropertyOptional({ description: 'Provider', example: 'openai' })
+  @ApiPropertyOptional({ name: 'provider', type: String, description: 'Provider', example: 'openai' })
   @Expose({ name: 'provider' })
   provider?: string;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
 
 export class TrajectoryResponseDto {
-  @ApiProperty({ description: 'Session info', type: TrajectorySessionDto })
+  @ApiProperty({ name: 'session', type: TrajectorySessionDto, description: 'Session info' })
   @Expose({ name: 'session' })
   @Type(() => TrajectorySessionDto)
   session!: TrajectorySessionDto;
 
-  @ApiProperty({ description: 'List of runs', type: [TrajectoryTurnDto] })
+  @ApiProperty({ name: 'runs', type: [TrajectoryTurnDto], description: 'List of runs' })
   @Expose({ name: 'runs' })
   @Type(() => TrajectoryTurnDto)
   runs!: TrajectoryTurnDto[];
 
-  @ApiProperty({ description: 'List of tool calls', type: [TrajectoryToolCallDto] })
-  @Expose({ name: 'tool_calls' })
+  @ApiProperty({ name: 'toolCalls', type: [TrajectoryToolCallDto], description: 'List of tool calls' })
+  @Expose({ name: 'toolCalls' })
   @Type(() => TrajectoryToolCallDto)
   toolCalls!: TrajectoryToolCallDto[];
 
-  @ApiProperty({ description: 'List of events', type: [TrajectoryEventDto] })
+  @ApiProperty({ name: 'events', type: [TrajectoryEventDto], description: 'List of events' })
   @Expose({ name: 'events' })
   @Type(() => TrajectoryEventDto)
   events!: TrajectoryEventDto[];
 
-  @ApiProperty({ description: 'Statistics', type: TrajectoryStatsDto })
+  @ApiProperty({ name: 'stats', type: TrajectoryStatsDto, description: 'Statistics' })
   @Expose({ name: 'stats' })
   @Type(() => TrajectoryStatsDto)
   stats!: TrajectoryStatsDto;
 
-  @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true })
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }

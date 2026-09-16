@@ -12,7 +12,7 @@ export class BaseException extends HttpException {
     const response: ApiErrorResponse = {
       status: 'error',
       message,
-      error_code: errorCode,
+      errorCode,
       details,
     };
     super(response, status);

@@ -1,25 +1,31 @@
 import { ApiOkResponse, ApiProperty, getSchemaPath } from '@nestjs/swagger';
 import { ApiSuccessResponse, MetaData } from '../interfaces/response.interface';
 import { applyDecorators, Type } from '@nestjs/common';
+import { Expose } from 'class-transformer';
 
 // 'node_modules/@nestjs/swagger/dist/interfaces/open-api-spec.interface';
 type OpenApiSchemaObject = Record<string, any>;
 type OpenApiReferenceObject = { $ref: string };
 
 export class DataMetaData implements MetaData {
-  @ApiProperty({ description: 'Total number of items' })
+  @ApiProperty({ name: 'totalItems', type: Number, description: 'Total number of items' })
+  @Expose({ name: 'totalItems' })
   totalItems!: number;
 
-  @ApiProperty({ description: 'Number of items returned in the current page' })
+  @ApiProperty({ name: 'itemCount', type: Number, description: 'Number of items returned in the current page' })
+  @Expose({ name: 'itemCount' })
   itemCount!: number;
 
-  @ApiProperty({ description: 'Number of items per page' })
+  @ApiProperty({ name: 'itemsPerPage', type: Number, description: 'Number of items per page' })
+  @Expose({ name: 'itemsPerPage' })
   itemsPerPage!: number;
 
-  @ApiProperty({ description: 'Total number of pages' })
+  @ApiProperty({ name: 'totalPages', type: Number, description: 'Total number of pages' })
+  @Expose({ name: 'totalPages' })
   totalPages!: number;
 
-  @ApiProperty({ description: 'Current page' })
+  @ApiProperty({ name: 'currentPage', type: Number, description: 'Current page' })
+  @Expose({ name: 'currentPage' })
   currentPage!: number;
 
   constructor(meta?: Partial<MetaData>) {
@@ -34,17 +40,22 @@ export class DataMetaData implements MetaData {
 }
 
 export class DataResponse<T> implements ApiSuccessResponse<T> {
-  @ApiProperty({ description: 'Status of the response', default: 'success' })
+  @ApiProperty({ name: 'status', type: String, description: 'Status of the response', default: 'success' })
+  @Expose({ name: 'status' })
   status: 'success' | 'ok' = 'success';
 
   @ApiProperty({
+    name: 'message',
+    type: String,
     description: 'Response message',
     required: false,
     default: 'Success!',
   })
+  @Expose({ name: 'message' })
   message?: string = 'Success!';
 
-  @ApiProperty({ description: 'Response data' })
+  @ApiProperty({ name: 'data', description: 'Response data' })
+  @Expose({ name: 'data' })
   data: T | T[] | null;
 
   constructor(data?: T | T[] | null, message?: string) {

@@ -18,7 +18,7 @@ import { ProjectService } from '../services/project.service';
 import { CreateProjectDto, UpdateProjectDto, ProjectResponseDto } from '../dto';
 
 @ApiTags('Project')
-@ApiExtraModels(CreateProjectDto, UpdateProjectDto)
+@ApiExtraModels(CreateProjectDto, UpdateProjectDto, ProjectResponseDto)
 @Controller({ path: 'projects', version: '1' })
 export class ProjectController {
   constructor(private readonly projectService: ProjectService) {}

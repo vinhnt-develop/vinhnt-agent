@@ -20,7 +20,7 @@ export class CatchEverythingFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     let httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
-    let error_code: ErrorCodeType = ErrorCodes.INTERNAL_SERVER_ERROR;
+    let errorCode: ErrorCodeType = ErrorCodes.INTERNAL_SERVER_ERROR;
     let details: any = undefined;
     if (exception instanceof HttpException) {
       httpStatus = exception.getStatus();
@@ -31,7 +31,7 @@ export class CatchEverythingFilter implements ExceptionFilter {
         details = isProduction() ? undefined : exception.stack;
       } else if (typeof response === 'object' && response !== null) {
         message = response['message'] || message;
-        error_code = response['error'] || error_code;
+        errorCode = response['error'] || errorCode;
         if (isCustomAppException) {
           details = response['details'] || undefined;
         } else {
@@ -48,7 +48,7 @@ export class CatchEverythingFilter implements ExceptionFilter {
     const responseBody: ApiErrorResponse = {
       status: 'error',
       message,
-      error_code,
+      errorCode,
       details,
     };
 

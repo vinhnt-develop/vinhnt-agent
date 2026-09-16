@@ -1,9 +1,10 @@
 import { Controller, Get, Inject } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiExtraModels } from '@nestjs/swagger';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
 import { HealthCheckResponseDto, LivenessResponseDto, ReadinessResponseDto } from '../dto';
 
 @ApiTags('Health')
+@ApiExtraModels(HealthCheckResponseDto, LivenessResponseDto, ReadinessResponseDto)
 @Controller('health')
 export class HealthController {
   constructor(

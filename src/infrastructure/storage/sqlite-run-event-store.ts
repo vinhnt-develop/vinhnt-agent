@@ -1,8 +1,9 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
 import { runEvents } from '@/modules/agent/schemas/agent.schema';
+import { sessions } from '@/modules/session/schemas/session.schema';
 import { eq, sql, desc } from 'drizzle-orm';
-import type { RunEventStore, RunEvent, RunEventSnapshot, RunEventListener, RunId, TraceId } from '@vinhnt-sdk/schema';
+import type { RunEventStore, RunEvent, RunEventSnapshot, RunEventListener, RunId, TraceId, SessionUpdates } from '@vinhnt-sdk/schema';
 import { v4 as uuid } from 'uuid';
 
 @Injectable()
@@ -27,6 +28,38 @@ export class SqliteRunEventStore implements RunEventStore {
     for (const listener of this.listeners) {
       listener(event);
     }
+  }
+
+  async appendTransactional(event: RunEvent, sessionUpdate?: { sessionId: string; updates: SessionUpdates }): Promise<void> {
+    this.db.transaction((tx: any) => {
+      tx.insert(runEvents).values({
+        runId: event.runId,
+        type: event.type,
+        sequence: event.sequence,
+        data: event.data,
+        traceId: event.traceId,
+        occurredAt: event.occurredAt,
+      }).run();
+
+      if (sessionUpdate) {
+        const updateData: Record<string, any> = { updatedAt: new Date().toISOString() };
+        if (sessionUpdate.updates.title !== undefined) updateData.title = sessionUpdate.updates.title;
+        if (sessionUpdate.updates.isActive !== undefined) updateData.isActive = sessionUpdate.updates.isActive ? 1 : 0;
+        if (sessionUpdate.updates.model !== undefined) updateData.model = sessionUpdate.updates.model;
+        if (sessionUpdate.updates.provider !== undefined) updateData.provider = sessionUpdate.updates.provider;
+        if (sessionUpdate.updates.cost !== undefined) updateData.cost = sessionUpdate.updates.cost;
+        if (sessionUpdate.updates.inputTokens !== undefined) updateData.inputTokens = sessionUpdate.updates.inputTokens;
+        if (sessionUpdate.updates.outputTokens !== undefined) updateData.outputTokens = sessionUpdate.updates.outputTokens;
+        if (sessionUpdate.updates.location !== undefined) updateData.location = sessionUpdate.updates.location;
+        if (sessionUpdate.updates.agentId !== undefined) updateData.agentId = sessionUpdate.updates.agentId;
+
+        tx.update(sessions).set(updateData).where(eq(sessions.id, sessionUpdate.sessionId)).run();
+      }
+
+      for (const listener of this.listeners) {
+        listener(event);
+      }
+    });
   }
 
   async exists(eventId: string): Promise<boolean> {
