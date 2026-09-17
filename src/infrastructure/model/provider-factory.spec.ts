@@ -56,6 +56,7 @@ describe('ProviderFactory', () => {
         provider: 'test-provider',
         baseUrl: 'https://api.test.com/v1',
         apiKey: 'sk-test',
+        defaultModel: 'test-model',
       };
 
       const provider = factory.buildProvider(config);

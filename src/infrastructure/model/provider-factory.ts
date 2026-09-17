@@ -19,6 +19,7 @@ export interface ProviderConfig {
   provider: string;
   baseUrl: string;
   apiKey?: string;
+  defaultModel?: string;
   defaultMaxTokens?: number;
   temperature?: number;
   contextLimit?: number;
@@ -95,6 +96,7 @@ export class ProviderFactory {
         provider: config.provider,
         baseUrl: config.baseUrl || '',
         apiKey: config.apiKey || '',
+        defaultModel: (config.configs?.defaultModel as string | undefined) || undefined,
         pricing: config.pricing || undefined,
       };
     } catch (error) {
@@ -120,7 +122,19 @@ export class ProviderFactory {
       return cached.provider;
     }
 
-    const provider = this.buildProvider(config);
+    let resolvedConfig = config;
+    if (!resolvedConfig.defaultModel) {
+      const models = await this.discoverModels(resolvedConfig);
+      if (models.length > 0) {
+        resolvedConfig = { ...resolvedConfig, defaultModel: models[0].id };
+        this.logger.debug(`Auto-selected default model: ${models[0].id}`);
+      } else {
+        resolvedConfig = { ...resolvedConfig, defaultModel: resolvedConfig.provider };
+        this.logger.debug(`No models discovered, using provider name as default model: ${resolvedConfig.provider}`);
+      }
+    }
+
+    const provider = this.buildProvider(resolvedConfig);
     this.cache.set(cacheKey, {
       provider,
       configHash: cacheKey,
@@ -138,6 +152,7 @@ export class ProviderFactory {
     const opts: OpenAICompatibleProviderOptions = {
       baseUrl: config.baseUrl,
       apiKey: config.apiKey || '',
+      defaultModel: config.defaultModel || config.provider,
       providerName: config.provider,
       timeoutMs: 120_000,
       retry: { maxRetries: 3, baseBackoffMs: 1000, maxBackoffMs: 30_000 },

@@ -81,6 +81,10 @@ export class SqliteMemoryStore implements MemoryStore {
     this.db.delete(memories).where(sql`${memories.key} = ${key} AND ${memories.sessionId} = ${sessionId}`).run();
   }
 
+  async deleteAll(sessionId: string): Promise<void> {
+    this.db.delete(memories).where(eq(memories.sessionId, sessionId)).run();
+  }
+
   async search(query: string, sessionId: string): Promise<MemoryItem[]> {
     const results = this.db.select().from(memories)
       .where(sql`(${memories.key} LIKE ${'%' + query + '%'} OR ${memories.value} LIKE ${'%' + query + '%'}) AND ${memories.sessionId} = ${sessionId}`)
