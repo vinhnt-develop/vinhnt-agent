@@ -10,7 +10,7 @@ allowBuilds:
 
 minimumReleaseAgeExclude:
   - '@vinhnt-sdk/config@0.1.5'
-  - '@vinhnt-sdk/core@0.1.6 || 0.2.0'
+  - '@vinhnt-sdk/core@0.1.6 || 0.2.0 || 0.3.1'
   - '@vinhnt-sdk/llm@0.1.5'
   - '@vinhnt-sdk/schema@0.2.0 || 0.2.1'
   - '@vinhnt-sdk/session@0.2.0'

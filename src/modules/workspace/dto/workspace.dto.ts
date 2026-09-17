@@ -1,6 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Expose } from 'class-transformer';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 export class CreateWorkspaceDto {
   @ApiProperty({ name: 'name', type: String, description: 'Workspace name', example: 'My Project' })
@@ -71,3 +72,5 @@ export class WorkspaceResponseDto {
   @Expose({ name: 'metadata' })
   metadata?: Record<string, unknown>;
 }
+
+export class ListWorkspacesDto extends PaginationDto {}

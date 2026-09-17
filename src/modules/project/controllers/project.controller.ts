@@ -10,12 +10,12 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBody, ApiParam, ApiQuery, ApiExtraModels } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBody, ApiParam, ApiExtraModels } from '@nestjs/swagger';
 import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
 import { ProjectService } from '../services/project.service';
-import { CreateProjectDto, UpdateProjectDto, ProjectResponseDto } from '../dto';
+import { CreateProjectDto, UpdateProjectDto, ProjectResponseDto, ListProjectsDto } from '../dto';
 
 @ApiTags('Project')
 @ApiExtraModels(CreateProjectDto, UpdateProjectDto, ProjectResponseDto)
@@ -26,11 +26,17 @@ export class ProjectController {
   @Get()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List projects in workspace' })
-  @ApiQuery({ name: 'workspaceId', required: true, type: String })
-  @ApiDataResponse(ProjectResponseDto, { isArray: true })
-  async findAll(@Query('workspaceId') workspaceId: string): Promise<ApiResponse<ProjectResponseDto[]>> {
-    const projects = await this.projectService.findAllByWorkspace(workspaceId);
-    return formatResponse.array(ProjectResponseDto, projects, 'Projects retrieved successfully.');
+  @ApiDataResponse(ProjectResponseDto, { isArray: true, withMeta: true })
+  async findAll(@Query() query: ListProjectsDto): Promise<ApiResponse<ProjectResponseDto[]>> {
+    const { data, total, page, limit } = await this.projectService.findAllByWorkspaceWithPagination(query.workspaceId, query);
+    return formatResponse.paginate(
+      ProjectResponseDto,
+      data,
+      'Projects retrieved successfully.',
+      page,
+      limit,
+      total,
+    );
   }
 
   @Get(':id')

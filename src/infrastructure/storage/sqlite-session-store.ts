@@ -22,14 +22,14 @@ function toSession(row: any): Session {
   return {
     id: row.id as SessionId,
     title: row.title || '',
-    createdAt: row.created_at || new Date().toISOString(),
-    updatedAt: row.updated_at || new Date().toISOString(),
-    isActive: row.is_active === 1 || row.is_active === true,
+    createdAt: row.createdAt || row.created_at || new Date().toISOString(),
+    updatedAt: row.updatedAt || row.updated_at || new Date().toISOString(),
+    isActive: row.isActive === 1 || row.isActive === true || row.is_active === 1 || row.is_active === true,
     model: row.model || undefined,
     provider: row.provider || undefined,
     cost: row.cost || undefined,
-    inputTokens: row.input_tokens || undefined,
-    outputTokens: row.output_tokens || undefined,
+    inputTokens: row.inputTokens ?? row.input_tokens ?? undefined,
+    outputTokens: row.outputTokens ?? row.output_tokens ?? undefined,
     metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata) : row.metadata,
   };
 }
@@ -38,19 +38,19 @@ function toMessage(row: any): Message {
   const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : (row.metadata || {});
   return {
     id: row.id as MessageId,
-    sessionId: row.session_id as SessionId,
+    sessionId: (row.sessionId || row.session_id) as SessionId,
     role: row.role,
     content: row.content || '',
-    toolCallId: row.tool_call_id as ToolCallId | undefined,
+    toolCallId: (row.toolCallId || row.tool_call_id) as ToolCallId | undefined,
     tokens: {
-      input: row.input_tokens || 0,
-      output: row.output_tokens || 0,
-      reasoning: row.reasoning_tokens || 0,
+      input: row.inputTokens ?? row.input_tokens ?? 0,
+      output: row.outputTokens ?? row.output_tokens ?? 0,
+      reasoning: row.reasoningTokens ?? row.reasoning_tokens ?? 0,
     },
     model: row.model || undefined,
     provider: row.provider || undefined,
     cost: row.cost || undefined,
-    createdAt: row.created_at || new Date().toISOString(),
+    createdAt: row.createdAt || row.created_at || new Date().toISOString(),
     admittedSeq: meta.admittedSeq,
     promotedSeq: meta.promotedSeq,
   };

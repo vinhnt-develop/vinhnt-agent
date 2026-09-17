@@ -11,6 +11,7 @@ import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
+import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { extractActualErrorMessage } from '@/shared/error-utils';
 
 /** Maximum age (ms) for runError entries before automatic cleanup. */
@@ -39,9 +40,13 @@ export class AgentGateway
   /** Map runId → socket ID for targeted event emission. */
   private runToClient = new Map<string, string>();
 
+  /** Map runId → sessionId for client-side filtering. */
+  private runToSession = new Map<string, string>();
+
   constructor(
     private readonly agentService: AgentService,
     private readonly trackingService: AgentRunTrackingService,
+    private readonly sessionRepository: SessionRepository,
   ) {}
 
   onModuleInit() {
@@ -50,16 +55,15 @@ export class AgentGateway
       const runId = (event as any).aggregateId as string | undefined;
       if (!runId) return;
 
-      // Route event to the specific client subscribed to this run
       const clientId = this.runToClient.get(runId);
       if (!clientId) return;
 
-      const transformed = this.transformEvent(event, runId);
+      const sessionId = this.runToSession.get(runId);
+      const transformed = this.transformEvent(event, runId, sessionId);
       if (transformed) {
         this.server?.to(clientId).emit('run:event', transformed);
       }
 
-      // Track errors per runId from EventBus
       if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
         const error = (event as any).data?.error;
         if (error) {
@@ -68,7 +72,6 @@ export class AgentGateway
       }
     });
 
-    // Periodic cleanup of stale runErrors entries
     setInterval(() => this.cleanupRunErrors(), 60_000);
 
     this.logger.log('AgentGateway subscribed to EventBus');
@@ -84,10 +87,10 @@ export class AgentGateway
 
   handleDisconnect(client: Socket) {
     this.logger.log(`Client disconnected: ${client.id}`);
-    // Clean up runToClient mappings for this client
     for (const [runId, clientId] of this.runToClient.entries()) {
       if (clientId === client.id) {
         this.runToClient.delete(runId);
+        this.runToSession.delete(runId);
       }
     }
   }
@@ -107,20 +110,39 @@ export class AgentGateway
     const runStartedAt = Date.now();
     let eventCount = 0;
     let toolCallCount = 0;
+    let runId: string | undefined;
 
     this.logger.log(
       `Run requested | client=${client.id} session=${data.sessionId} model=${data.model ?? 'default'}`,
     );
 
     try {
-      const { handle, runId } = await this.agentService.runAgentStreaming(data);
+      if (!data.sessionId) {
+        client.emit('run:error', {
+          error: 'sessionId is required',
+          sessionId: data.sessionId,
+        });
+        return;
+      }
 
-      // Map runId → client for EventBus routing
+      const session = await this.sessionRepository.findById(data.sessionId);
+      if (!session) {
+        client.emit('run:error', {
+          error: 'Session not found',
+          sessionId: data.sessionId,
+        });
+        return;
+      }
+
+      const result = await this.agentService.runAgentStreaming(data);
+      runId = result.runId;
+      const handle = result.handle;
+
       this.runToClient.set(runId, client.id);
+      this.runToSession.set(runId, data.sessionId);
 
-      client.emit('run:started', { runId });
+      client.emit('run:started', { runId, sessionId: data.sessionId });
 
-      // Stream events to client + track tool executions
       for await (const event of handle.events()) {
         eventCount++;
 
@@ -149,25 +171,31 @@ export class AgentGateway
         }
       }
 
-      const result = await handle.completed;
+      const completed = await handle.completed;
       const durationMs = Date.now() - runStartedAt;
 
-      // Get error from EventBus tracking (emitFail puts error there)
       const trackedEntry = this.runErrors.get(runId);
       const trackedError = trackedEntry?.error;
       if (trackedEntry) this.runErrors.delete(runId);
 
-      // Check if the run failed
-      const hasError = !result || (result as any).error || (result as any).status === 'failed' || trackedError;
-      
+      const hasError =
+        !completed ||
+        (completed as any).error ||
+        (completed as any).status === 'failed' ||
+        trackedError;
+
       if (hasError) {
-        const rawError = trackedError || (result as any)?.error || (result as any)?.output || 'Agent run failed';
+        const rawError =
+          trackedError ||
+          (completed as any)?.error ||
+          (completed as any)?.output ||
+          'Agent run failed';
         const errorMsg = extractActualErrorMessage(rawError);
-        
+
         this.logger.error(
           `Run FAILED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} error=${errorMsg}`,
         );
-        
+
         this.trackingService.completeRun({
           runId,
           status: 'failed',
@@ -177,9 +205,11 @@ export class AgentGateway
 
         client.emit('run:error', {
           error: errorMsg,
+          sessionId: data.sessionId,
+          runId,
         });
       } else {
-        const tokens = result?.usage;
+        const tokens = completed?.usage;
         this.logger.log(
           `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} tokens=${tokens?.promptTokens ?? 0}+${tokens?.completionTokens ?? 0}`,
         );
@@ -189,24 +219,33 @@ export class AgentGateway
           status: 'succeeded',
           inputTokens: tokens?.promptTokens,
           outputTokens: tokens?.completionTokens,
-          totalCost: result?.cost,
+          totalCost: completed?.cost,
           durationMs,
-          toolCallsCount: result?.toolCalls?.length,
+          toolCallsCount: completed?.toolCalls?.length,
         });
 
-        client.emit('run:completed', result);
+        client.emit('run:completed', {
+          ...completed,
+          sessionId: data.sessionId,
+        });
       }
 
-      // Cleanup
       this.runToClient.delete(runId);
+      this.runToSession.delete(runId);
     } catch (error) {
       const durationMs = Date.now() - runStartedAt;
       const errorMsg = extractActualErrorMessage(error);
       this.logger.error(
         `Run ERROR | client=${client.id} session=${data.sessionId} duration=${durationMs}ms error=${errorMsg}`,
       );
+      if (runId) {
+        this.runToClient.delete(runId);
+        this.runToSession.delete(runId);
+      }
       client.emit('run:error', {
         error: errorMsg,
+        sessionId: data.sessionId,
+        runId,
       });
     }
   }
@@ -217,8 +256,9 @@ export class AgentGateway
     @MessageBody() data: { runId: string },
   ) {
     this.logger.log(`Cancel requested by ${client.id} for run ${data.runId}`);
+    const sessionId = this.runToSession.get(data.runId);
     await this.agentService.cancelRun(data.runId);
-    client.emit('run:cancelled', { runId: data.runId });
+    client.emit('run:cancelled', { runId: data.runId, sessionId });
   }
 
   @SubscribeMessage('messages')
@@ -230,58 +270,62 @@ export class AgentGateway
     client.emit('messages', messages);
   }
 
-  /**
-   * Transform SDK EventBus events into webui-compatible format.
-   * Maps token.streamed → text, preserves tool events, etc.
-   */
-  private transformEvent(event: any, runId: string): Record<string, unknown> | null {
+  private transformEvent(
+    event: any,
+    runId: string,
+    sessionId?: string,
+  ): Record<string, unknown> | null {
     const type = event.type as string;
     const data = event.data;
+    const base = sessionId ? { runId, sessionId } : { runId };
 
     switch (type) {
       case 'token.streamed':
         return {
           type: 'text',
           content: data?.content ?? data?.delta ?? '',
-          runId,
+          ...base,
         };
       case 'tool.invoked':
         return {
           type: 'tool.invoked',
           toolName: data?.toolName,
           input: data?.input,
-          runId,
+          ...base,
         };
       case 'tool.completed':
         return {
           type: 'tool.completed',
           toolName: data?.toolName,
           output: data?.output,
-          runId,
+          ...base,
         };
       case 'tool.failed':
         return {
           type: 'tool.failed',
           toolName: data?.toolName,
           error: data?.error,
-          runId,
+          ...base,
         };
       case 'thinking.content':
         return {
           type: 'thinking',
           content: data?.content,
-          runId,
+          ...base,
         };
       default:
-        // Forward other run-relevant events as-is
-        if (type.startsWith('run.') || type.startsWith('step.') || type.startsWith('tool.') || type.startsWith('thinking.')) {
-          return { type, data, runId };
+        if (
+          type.startsWith('run.') ||
+          type.startsWith('step.') ||
+          type.startsWith('tool.') ||
+          type.startsWith('thinking.')
+        ) {
+          return { type, data, ...base };
         }
         return null;
     }
   }
 
-  /** Remove runErrors entries older than TTL. */
   private cleanupRunErrors() {
     const now = Date.now();
     for (const [runId, entry] of this.runErrors.entries()) {

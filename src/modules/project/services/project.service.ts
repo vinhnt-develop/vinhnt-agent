@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ProjectRepository } from '../repositories/project.repository';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
 export class ProjectService {
@@ -7,6 +8,10 @@ export class ProjectService {
 
   async findAllByWorkspace(workspaceId: string) {
     return this.projectRepository.findByWorkspaceId(workspaceId);
+  }
+
+  async findAllByWorkspaceWithPagination(workspaceId: string, dto: PaginationDto) {
+    return this.projectRepository.findByWorkspaceIdWithPagination(workspaceId, dto);
   }
 
   async findById(id: string) {

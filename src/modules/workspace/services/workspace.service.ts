@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { WorkspaceRepository } from '../repositories/workspace.repository';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
 export class WorkspaceService {
@@ -15,6 +16,10 @@ export class WorkspaceService {
 
   async findAllByOwner(ownerId: string) {
     return this.workspaceRepository.findByOwnerId(ownerId);
+  }
+
+  async findAllByOwnerWithPagination(ownerId: string, dto: PaginationDto) {
+    return this.workspaceRepository.findByOwnerIdWithPagination(ownerId, dto);
   }
 
   async findById(id: string, userId: string) {

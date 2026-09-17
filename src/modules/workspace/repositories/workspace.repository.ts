@@ -3,6 +3,7 @@ import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connecti
 import { workspaces } from '../schemas/workspace.schema';
 import { eq, sql, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
 export class WorkspaceRepository {
@@ -19,6 +20,28 @@ export class WorkspaceRepository {
       .where(sql`${workspaces.ownerId} = ${ownerId} AND ${workspaces.deletedAt} IS NULL`)
       .orderBy(desc(workspaces.createdAt))
       .all();
+  }
+
+  async findByOwnerIdWithPagination(ownerId: string, dto: PaginationDto) {
+    const offset = (dto.page! - 1) * dto.limit!;
+    const where = sql`${workspaces.ownerId} = ${ownerId} AND ${workspaces.deletedAt} IS NULL`;
+
+    const rows = this.db
+      .select()
+      .from(workspaces)
+      .where(where)
+      .orderBy(desc(workspaces.createdAt))
+      .limit(dto.limit!)
+      .offset(offset)
+      .all();
+
+    const [{ count: total }] = this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(workspaces)
+      .where(where)
+      .all();
+
+    return { data: rows, total, page: dto.page!, limit: dto.limit! };
   }
 
   async findByName(name: string, ownerId: string) {

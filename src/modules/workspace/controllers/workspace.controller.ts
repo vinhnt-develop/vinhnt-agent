@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -14,7 +15,7 @@ import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
 import { WorkspaceService } from '../services/workspace.service';
-import { CreateWorkspaceDto, UpdateWorkspaceDto, WorkspaceResponseDto } from '../dto';
+import { CreateWorkspaceDto, UpdateWorkspaceDto, WorkspaceResponseDto, ListWorkspacesDto } from '../dto';
 
 @ApiTags('Workspace')
 @ApiExtraModels(CreateWorkspaceDto, UpdateWorkspaceDto, WorkspaceResponseDto)
@@ -40,11 +41,18 @@ export class WorkspaceController {
   @Get()
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List workspaces' })
-  @ApiDataResponse(WorkspaceResponseDto, { isArray: true })
-  async findAll(): Promise<ApiResponse<WorkspaceResponseDto[]>> {
+  @ApiDataResponse(WorkspaceResponseDto, { isArray: true, withMeta: true })
+  async findAll(@Query() query: ListWorkspacesDto): Promise<ApiResponse<WorkspaceResponseDto[]>> {
     const userId = 'local-user';
-    const workspaces = await this.workspaceService.findAllByOwner(userId);
-    return formatResponse.array(WorkspaceResponseDto, workspaces, 'Workspaces retrieved successfully.');
+    const { data, total, page, limit } = await this.workspaceService.findAllByOwnerWithPagination(userId, query);
+    return formatResponse.paginate(
+      WorkspaceResponseDto,
+      data,
+      'Workspaces retrieved successfully.',
+      page,
+      limit,
+      total,
+    );
   }
 
   @Get(':id')

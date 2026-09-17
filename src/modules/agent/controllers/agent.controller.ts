@@ -6,6 +6,7 @@ import {
   Param,
   HttpCode,
   HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -21,6 +22,7 @@ import { AgentService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { TrajectoryService } from '@/modules/session/services/trajectory.service';
 import { TrajectoryResponseDto } from '@/modules/session/dto';
+import { SessionRepository } from '@/modules/session/repositories/session.repository';
 
 @ApiTags('Agent')
 @ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto, TrajectoryResponseDto)
@@ -29,6 +31,7 @@ export class AgentController {
   constructor(
     private readonly agentService: AgentService,
     private readonly trajectoryService: TrajectoryService,
+    private readonly sessionRepository: SessionRepository,
   ) {}
 
   @Post('run')
@@ -39,6 +42,11 @@ export class AgentController {
   async run(
     @Body() dto: RunAgentDto,
   ): Promise<ApiResponse<RunAgentResponseDto>> {
+    const session = await this.sessionRepository.findById(dto.sessionId);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
     const result = await this.agentService.runAgent({
       sessionId: dto.sessionId,
       prompt: dto.prompt,

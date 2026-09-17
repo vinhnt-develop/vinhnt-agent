@@ -1,6 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Expose } from 'class-transformer';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 export class CreateProjectDto {
   @ApiProperty({ name: 'name', type: String, description: 'Project name', example: 'my-app' })
@@ -94,4 +95,12 @@ export class ProjectResponseDto {
   @ApiPropertyOptional({ name: 'deletedAt', type: String, description: 'Deletion timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
   @Expose({ name: 'deletedAt' })
   deletedAt?: string;
+}
+
+export class ListProjectsDto extends PaginationDto {
+  @ApiProperty({ name: 'workspaceId', type: String, description: 'Workspace ID' })
+  @IsString()
+  @IsNotEmpty()
+  @Expose({ name: 'workspaceId' })
+  workspaceId!: string;
 }

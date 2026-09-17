@@ -99,6 +99,7 @@ export class AgentService {
         model: provider,
         store: this.runEventStore,
         sessionStore: this.sessionStore,
+        eventBus: this.eventBus,
         tools: tools.length > 0 ? (tools as any) : undefined,
         maxSteps: 30,
         maxTokens: 4096,
@@ -242,7 +243,11 @@ export class AgentService {
     const { sessionId, prompt, model, provider } = input;
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
-    const runId = crypto.randomUUID();
+    const kernel = await this.getKernel(model, provider);
+    const ctx = this.buildRequestContext(provider, model);
+    const handle = kernel.createRunHandle(prompt, ctx, sessionId);
+
+    const runId = handle.runId as string;
 
     this.trackingService.startRun({
       runId,
@@ -252,14 +257,8 @@ export class AgentService {
       triggerType: 'websocket',
     });
 
-    const kernel = await this.getKernel(model, provider);
-    const ctx = this.buildRequestContext(provider, model);
-    const handle = kernel.createRunHandle(prompt, ctx, sessionId);
-
-    // Store handle for run-specific cancellation
     this.activeHandles.set(runId, handle);
 
-    // Clean up handle when run completes
     handle.completed.then(
       () => this.activeHandles.delete(runId),
       () => this.activeHandles.delete(runId),

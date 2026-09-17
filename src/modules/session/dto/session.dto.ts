@@ -1,6 +1,7 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsNumber } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsNumber, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Expose, Type } from 'class-transformer';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 export class CreateSessionDto {
   @ApiPropertyOptional({ name: 'title', type: String, description: 'Session title', example: 'Help with debugging' })
@@ -195,4 +196,25 @@ export class MessageResponseDto {
   @ApiPropertyOptional({ name: 'createdAt', type: String, description: 'Creation timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
   @Expose({ name: 'createdAt' })
   createdAt?: string;
+}
+
+export class ListSessionsDto extends PaginationDto {
+  @ApiProperty({ name: 'projectId', type: String, description: 'Project ID' })
+  @IsString()
+  @IsNotEmpty()
+  @Expose({ name: 'projectId' })
+  projectId!: string;
+}
+
+export class ListMessagesDto extends PaginationDto {
+  @ApiPropertyOptional({
+    name: 'order',
+    enum: ['asc', 'desc'],
+    description: 'Message order: asc = oldest first (default), desc = newest first (chat tail)',
+    default: 'asc',
+  })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  @Expose({ name: 'order' })
+  order?: 'asc' | 'desc' = 'asc';
 }

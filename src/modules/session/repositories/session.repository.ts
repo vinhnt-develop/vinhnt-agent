@@ -1,15 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
 import { sessions, messages } from '../schemas/session.schema';
-import { eq, sql, desc } from 'drizzle-orm';
+import { eq, sql, desc, asc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
 export class SessionRepository {
   constructor(@Inject(DATABASE_CONNECTION) private readonly db: any) {}
 
   async findById(id: string) {
-    return this.db.select().from(sessions).where(eq(sessions.id, id)).get();
+    return this.db
+      .select()
+      .from(sessions)
+      .where(sql`${sessions.id} = ${id} AND ${sessions.deletedAt} IS NULL`)
+      .get();
   }
 
   async findByProjectId(projectId: string) {
@@ -19,6 +24,28 @@ export class SessionRepository {
       .where(sql`${sessions.projectId} = ${projectId} AND ${sessions.deletedAt} IS NULL`)
       .orderBy(desc(sessions.createdAt))
       .all();
+  }
+
+  async findByProjectIdWithPagination(projectId: string, dto: PaginationDto) {
+    const offset = (dto.page! - 1) * dto.limit!;
+    const where = sql`${sessions.projectId} = ${projectId} AND ${sessions.deletedAt} IS NULL`;
+
+    const rows = this.db
+      .select()
+      .from(sessions)
+      .where(where)
+      .orderBy(desc(sessions.createdAt))
+      .limit(dto.limit!)
+      .offset(offset)
+      .all();
+
+    const [{ count: total }] = this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(sessions)
+      .where(where)
+      .all();
+
+    return { data: rows, total, page: dto.page!, limit: dto.limit! };
   }
 
   async create(data: { title?: string; projectId?: string; model?: string; provider?: string }) {
@@ -79,5 +106,37 @@ export class SessionRepository {
       .limit(limit)
       .all();
     return rows.reverse();
+  }
+
+  async findMessagesWithPagination(
+    sessionId: string,
+    dto: PaginationDto & { order?: 'asc' | 'desc' },
+  ) {
+    const page = dto.page || 1;
+    const limit = dto.limit || 100;
+    const offset = (page - 1) * limit;
+    const order = dto.order === 'desc' ? 'desc' : 'asc';
+
+    const rows = this.db
+      .select()
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .orderBy(
+        order === 'desc'
+          ? desc(messages.createdAt)
+          : asc(messages.createdAt),
+        order === 'desc' ? desc(messages.id) : asc(messages.id),
+      )
+      .limit(limit)
+      .offset(offset)
+      .all();
+
+    const [{ count: total }] = this.db
+      .select({ count: sql<number>`count(*)` })
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .all();
+
+    return { data: rows, total, page, limit, order };
   }
 }

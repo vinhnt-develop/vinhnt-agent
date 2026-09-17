@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { SessionRepository } from '../repositories/session.repository';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
 export class SessionService {
@@ -7,6 +8,10 @@ export class SessionService {
 
   async findAllByProject(projectId: string) {
     return this.sessionRepository.findByProjectId(projectId);
+  }
+
+  async findAllByProjectWithPagination(projectId: string, dto: PaginationDto) {
+    return this.sessionRepository.findByProjectIdWithPagination(projectId, dto);
   }
 
   async findById(id: string) {
@@ -39,5 +44,13 @@ export class SessionService {
   async findMessages(sessionId: string) {
     await this.findById(sessionId);
     return this.sessionRepository.findMessages(sessionId);
+  }
+
+  async findMessagesWithPagination(
+    sessionId: string,
+    dto: PaginationDto & { order?: 'asc' | 'desc' },
+  ) {
+    await this.findById(sessionId);
+    return this.sessionRepository.findMessagesWithPagination(sessionId, dto);
   }
 }
