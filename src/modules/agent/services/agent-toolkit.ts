@@ -218,6 +218,10 @@ export class AgentToolkit {
     return this.approvalStore;
   }
 
+  getCircuitBreaker(): CircuitBreaker {
+    return this.circuitBreaker;
+  }
+
   getToolsAsDefinitions(): ToolDefinition[] {
     return this.toolRegistry.list() as ToolDefinition[];
   }

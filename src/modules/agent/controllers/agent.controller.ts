@@ -3,7 +3,6 @@ import {
   Post,
   Get,
   Body,
-  Param,
   HttpCode,
   HttpStatus,
   NotFoundException,
@@ -12,7 +11,6 @@ import {
   ApiTags,
   ApiOperation,
   ApiBody,
-  ApiParam,
   ApiExtraModels,
 } from '@nestjs/swagger';
 import { ApiDataResponse } from '@/common/decorators';
@@ -20,17 +18,14 @@ import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
 import { AgentService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
-import { TrajectoryService } from '@/modules/session/services/trajectory.service';
-import { TrajectoryResponseDto } from '@/modules/session/dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 
 @ApiTags('Agent')
-@ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto, TrajectoryResponseDto)
+@ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto)
 @Controller({ path: 'agent', version: '1' })
 export class AgentController {
   constructor(
     private readonly agentService: AgentService,
-    private readonly trajectoryService: TrajectoryService,
     private readonly sessionRepository: SessionRepository,
   ) {}
 
@@ -58,16 +53,6 @@ export class AgentController {
       result,
       'Agent run completed.',
     );
-  }
-
-  @Get('sessions/:sessionId/trajectory')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Get session trajectory (runs, tool calls, events, stats)' })
-  @ApiParam({ name: 'sessionId', type: 'string' })
-  @ApiDataResponse(TrajectoryResponseDto)
-  async getTrajectory(@Param('sessionId') sessionId: string): Promise<ApiResponse<TrajectoryResponseDto>> {
-    const trajectory = await this.trajectoryService.getTrajectory(sessionId);
-    return formatResponse.single(TrajectoryResponseDto, trajectory, 'Trajectory retrieved successfully.');
   }
 
   @Get('stats')

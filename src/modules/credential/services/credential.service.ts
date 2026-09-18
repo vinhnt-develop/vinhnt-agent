@@ -10,7 +10,11 @@ export class CredentialService {
   }
 
   async findEnabled() {
-    return this.repository.findEnabled();
+    const credentials = await this.repository.findEnabled();
+    return credentials.map((c) => ({
+      ...c,
+      value: '***',
+    }));
   }
 
   async findById(id: string) {

@@ -9,7 +9,6 @@ import { AgentRunTrackingService } from './services/agent-run-tracking.service';
 import { AgentRunRepository } from './repositories/agent-run.repository';
 import { ToolExecutionRepository } from './repositories/tool-execution.repository';
 import { AgentGateway } from './controllers/agent.gateway';
-import { TrajectoryService } from '@/modules/session/services/trajectory.service';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 
 @Module({
@@ -22,7 +21,6 @@ import { SessionRepository } from '@/modules/session/repositories/session.reposi
     AgentRunTrackingService,
     AgentRunRepository,
     ToolExecutionRepository,
-    TrajectoryService,
     SessionRepository,
   ],
   exports: [AgentService, AgentToolkit, AgentRunTrackingService],

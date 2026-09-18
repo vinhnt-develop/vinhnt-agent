@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AgentKernelConfig } from '@vinhnt-sdk/core';
+import {
+  InMemoryAgentRegistry,
+} from '@vinhnt-sdk/core';
 import type {
   RequestId,
   TraceId,
@@ -46,6 +49,7 @@ export class AgentService {
   private readonly maxKernelCacheSize: number;
   private readonly eventBus = new InMemoryEventBus();
   private readonly tokenMeter = new TokenMeter();
+  private readonly agentRegistry = new InMemoryAgentRegistry();
 
   constructor(
     private readonly sessionStore: SqliteSessionStore,
@@ -94,6 +98,7 @@ export class AgentService {
       const { AgentKernel } = await import('@vinhnt-sdk/core');
       const tools = this.agentToolkit.getToolsAsDefinitions() as ToolDefinitionLike[];
       const provider = await this.providerFactory.getModelProvider(providerName);
+      const workspaceRoot = this.configService.get<string>('WORKSPACE_ROOT', '.');
 
       const kernelConfig: AgentKernelConfig = {
         model: provider,
@@ -101,14 +106,42 @@ export class AgentService {
         sessionStore: this.sessionStore,
         eventBus: this.eventBus,
         tools: tools.length > 0 ? (tools as any) : undefined,
-        maxSteps: 30,
-        maxTokens: 4096,
-        stepTimeout: 120_000,
+
+        // Limits
+        maxSteps: this.configService.get<number>('agent.maxSteps', 30),
+        maxTokens: this.configService.get<number>('agent.maxTokens', 4096),
+        stepTimeout: this.configService.get<number>('agent.stepTimeout', 120_000),
+
+        // Resilience — wire from AgentToolkit
+        circuitBreaker: this.agentToolkit.getCircuitBreaker() as any,
+        doomLoopThreshold: this.configService.get<number>('agent.doomLoopThreshold', 3),
+
+        // Self-correction
+        selfCorrectOnFailure: true,
+        maxSelfCorrectAttempts: 3,
+
+        // Thinking
+        thinkingBudget: this.configService.get<number>('agent.thinkingBudget', 1024),
+
+        // Workspace
+        workspaceRoot,
+
+        // Permissions
+        permissions: {
+          approvalStore: this.agentToolkit.getApprovalStore(),
+          autoApprovalEnabled: this.configService.get<boolean>('agent.autoApproval', false),
+        },
+
+        // Sub-agents
+        agentRegistry: this.agentRegistry,
+
+        // Plugins
+        pluginManager: this.agentToolkit.getPluginRegistry() as any,
       };
 
       const kernel = new AgentKernel(kernelConfig);
       this.kernels.set(cacheKey, { kernel, lastAccess: Date.now() });
-      this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${tools.length}`);
+      this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${tools.length} workspace=${workspaceRoot}`);
       return kernel;
     } catch (error) {
       this.logger.error('Failed to initialize AgentKernel', error);

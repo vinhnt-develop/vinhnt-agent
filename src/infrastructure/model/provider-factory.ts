@@ -50,6 +50,8 @@ export class ProviderFactory {
   private readonly logger = new Logger(ProviderFactory.name);
   private cache = new Map<string, CacheEntry>();
   private readonly tokenMeter = new TokenMeter();
+  private readonly modelCache = new Map<string, { models: readonly DiscoveredModel[]; expiresAt: number }>();
+  private readonly MODEL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
   constructor(
     @Inject(DATABASE_CONNECTION) private readonly db: any,
@@ -176,6 +178,12 @@ export class ProviderFactory {
    * Discover models from a provider's API.
    */
   async discoverModels(config: ProviderConfig): Promise<readonly DiscoveredModel[]> {
+    const cacheKey = `${config.provider}|${config.baseUrl}`;
+    const cached = this.modelCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.models;
+    }
+
     try {
       const url = `${config.baseUrl}/models`;
       const headers: Record<string, string> = {};
@@ -183,14 +191,25 @@ export class ProviderFactory {
         headers['Authorization'] = `Bearer ${config.apiKey}`;
       }
 
-      const response = await fetch(url, { method: 'GET', headers });
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      });
       if (!response.ok) {
         this.logger.warn(`Model discovery failed: ${response.status}`);
         return [];
       }
 
       const data: unknown = await response.json();
-      return this.parseModelList(data as RawModelList);
+      const models = this.parseModelList(data as RawModelList);
+
+      this.modelCache.set(cacheKey, {
+        models,
+        expiresAt: Date.now() + this.MODEL_CACHE_TTL_MS,
+      });
+
+      return models;
     } catch (error) {
       this.logger.warn(`Model discovery error: ${error}`);
       return [];
