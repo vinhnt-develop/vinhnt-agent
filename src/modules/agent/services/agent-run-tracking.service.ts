@@ -65,8 +65,15 @@ export class AgentRunTrackingService {
         ...(data.errorMetadata ? { errorMetadata: data.errorMetadata } : {}),
       };
 
+      // Update model/provider from actual API response (metadata.model/provider)
+      // This ensures trajectory shows the real model used, not just the config default
+      const actualModel = data.metadata?.model as string | undefined;
+      const actualProvider = data.metadata?.provider as string | undefined;
+
       this.agentRunRepository.update(data.runId, {
         status: data.status,
+        ...(actualModel ? { model: actualModel } : {}),
+        ...(actualProvider ? { provider: actualProvider } : {}),
         inputTokens: data.inputTokens,
         outputTokens: data.outputTokens,
         reasoningTokens: data.reasoningTokens,
