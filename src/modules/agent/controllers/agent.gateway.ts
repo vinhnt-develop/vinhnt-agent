@@ -13,6 +13,7 @@ import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { extractActualErrorMessage } from '@/shared/error-utils';
+import { SdkError, isSdkError } from '@vinhnt-sdk/schema';
 
 /** Maximum age (ms) for runError entries before automatic cleanup. */
 const RUN_ERROR_TTL_MS = 5 * 60 * 1000;
@@ -36,7 +37,15 @@ export class AgentGateway
   private errorCleanupInterval?: ReturnType<typeof setInterval>;
 
   /** Track error messages per runId with timestamp for TTL cleanup. */
-  private runErrors = new Map<string, { error: string; timestamp: number }>();
+  private runErrors = new Map<
+    string,
+    {
+      error: string;
+      timestamp: number;
+      code?: string;
+      retryable?: boolean;
+    }
+  >();
 
   /** Map runId → socket ID for targeted event emission. */
   private runToClient = new Map<string, string>();
@@ -211,6 +220,17 @@ export class AgentGateway
           errorMessage: errorMsg,
         });
 
+        if (isSdkError(rawError)) {
+          this.runErrors.set(runId, {
+            error: errorMsg,
+            code: rawError.code,
+            retryable: rawError.retryable,
+            timestamp: Date.now(),
+          });
+        } else {
+          this.runErrors.set(runId, { error: errorMsg, timestamp: Date.now() });
+        }
+
         client.emit('run:error', {
           error: errorMsg,
           sessionId: data.sessionId,
@@ -236,6 +256,11 @@ export class AgentGateway
         client.emit('run:completed', {
           ...completed,
           sessionId: data.sessionId,
+          reasoningTokens: (completed as any)?.usage?.reasoningTokens,
+          cacheReadTokens: (completed as any)?.usage?.cacheReadTokens,
+          cacheWriteTokens: (completed as any)?.usage?.cacheWriteTokens,
+          totalTokens: (completed as any)?.usage?.totalTokens,
+          stopReason: (completed as any)?.stopReason,
         });
       }
 
@@ -250,6 +275,16 @@ export class AgentGateway
       if (runId) {
         this.runToClient.delete(runId);
         this.runToSession.delete(runId);
+        if (isSdkError(error)) {
+          this.runErrors.set(runId, {
+            error: errorMsg,
+            code: error.code,
+            retryable: error.retryable,
+            timestamp: Date.now(),
+          });
+        } else {
+          this.runErrors.set(runId, { error: errorMsg, timestamp: Date.now() });
+        }
       }
       client.emit('run:error', {
         error: errorMsg,

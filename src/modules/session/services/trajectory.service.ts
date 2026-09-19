@@ -7,6 +7,7 @@ import { runEvents } from '@/modules/agent/schemas/agent.schema';
 import { messages } from '@/modules/session/schemas/session.schema';
 import { eq, sql } from 'drizzle-orm';
 import { SessionRepository } from '../repositories/session.repository';
+import type { ContentPart } from '@vinhnt-sdk/schema';
 
 export interface TrajectoryTurn {
   runId: string;
@@ -16,6 +17,10 @@ export interface TrajectoryTurn {
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+  stopReason?: string;
   totalCost: number;
   durationMs: number;
   toolCallsCount: number;
@@ -53,7 +58,7 @@ export interface TrajectoryToolCall {
 export interface TrajectoryMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
-  contentBlocks?: unknown[];
+  contentBlocks?: readonly ContentPart[];
   model?: string;
   provider?: string;
   inputTokens?: number;
@@ -90,6 +95,9 @@ export interface TrajectoryStats {
   totalInputTokens: number;
   totalOutputTokens: number;
   totalReasoningTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
+  totalAllTokens: number;
   totalCost: number;
   totalDurationMs: number;
   succeededRuns: number;
@@ -230,6 +238,10 @@ export class TrajectoryService {
         inputTokens: run.inputTokens || 0,
         outputTokens: run.outputTokens || 0,
         reasoningTokens: run.reasoningTokens || 0,
+        cacheReadTokens: run.cacheReadTokens || 0,
+        cacheWriteTokens: run.cacheWriteTokens || 0,
+        totalTokens: run.totalTokens || 0,
+        stopReason: run.stopReason,
         totalCost: run.totalCost || 0,
         durationMs: run.durationMs || 0,
         toolCallsCount: run.toolCallsCount || runToolCalls.length,
@@ -399,6 +411,9 @@ export class TrajectoryService {
     const totalInputTokens = runs.reduce((sum, r) => sum + r.inputTokens, 0);
     const totalOutputTokens = runs.reduce((sum, r) => sum + r.outputTokens, 0);
     const totalReasoningTokens = runs.reduce((sum, r) => sum + r.reasoningTokens, 0);
+    const totalCacheReadTokens = runs.reduce((sum, r) => sum + (r.cacheReadTokens || 0), 0);
+    const totalCacheWriteTokens = runs.reduce((sum, r) => sum + (r.cacheWriteTokens || 0), 0);
+    const totalAllTokens = runs.reduce((sum, r) => sum + (r.totalTokens || 0), 0);
     const totalCost = runs.reduce((sum, r) => sum + r.totalCost, 0);
     const totalDurationMs = runs.reduce((sum, r) => sum + r.durationMs, 0);
     const succeededRuns = runs.filter((r) => r.status === 'succeeded').length;
@@ -443,6 +458,9 @@ export class TrajectoryService {
       totalInputTokens,
       totalOutputTokens,
       totalReasoningTokens,
+      totalCacheReadTokens,
+      totalCacheWriteTokens,
+      totalAllTokens,
       totalCost,
       totalDurationMs,
       succeededRuns,
