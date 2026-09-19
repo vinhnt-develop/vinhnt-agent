@@ -3,7 +3,9 @@ import { ConfigService } from '@nestjs/config';
 import type { AgentKernelConfig } from '@vinhnt-sdk/core';
 import {
   InMemoryAgentRegistry,
+  createAgent,
 } from '@vinhnt-sdk/core';
+import type { AgentId } from '@vinhnt-sdk/schema';
 import type {
   RequestId,
   TraceId,
@@ -104,6 +106,19 @@ export class AgentService {
       // Register memory search tool
       const memorySearchTool = createMemorySearchTool(this.sessionStore as any);
       const allTools = [...tools, memorySearchTool as any];
+
+      // Register code-reviewer sub-agent
+      const codeReviewer = createAgent({
+        id: 'code-reviewer' as AgentId,
+        profile: {
+          name: 'Code Reviewer',
+          description: 'Reviews code for security issues, bugs, and best practices',
+        },
+        systemPrompt: 'You are a code review specialist. Focus on security, correctness, and best practices. Provide actionable feedback.',
+        capabilities: { tools: ['read_file', 'grep_files', 'glob_files'] },
+        permissions: { mode: 'subagent', maxSteps: 10 },
+      });
+      await this.agentRegistry.register(codeReviewer);
 
       const provider = await this.providerFactory.getModelProvider(providerName);
       const workspaceRoot = this.configService.get<string>('WORKSPACE_ROOT', '.');
