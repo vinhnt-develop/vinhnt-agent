@@ -28,7 +28,7 @@ import {
   LoopDetector,
   withToolTimeout,
 } from '@vinhnt-sdk/guard';
-import { SpanRecorder, Timeline, CostMeter } from '@vinhnt-sdk/trace';
+import { Timeline, CostMeter } from '@vinhnt-sdk/trace';
 import {
   defaultSecretRedactor,
   sanitizeForLLM,
@@ -89,7 +89,6 @@ export class AgentToolkit {
   private readonly loopDetector = new LoopDetector(3, 20);
   private readonly timelines = new Map<string, Timeline>();
   private readonly costMeters = new Map<string, CostMeter>();
-  private readonly spanRecorders = new Map<string, SpanRecorder>();
   private readonly envSnapshot: EnvSnapshot;
   private readonly runStateMachine = new RunStateMachine();
   private readonly pluginRegistry: PluginRegistry =
@@ -284,13 +283,6 @@ export class AgentToolkit {
     return this.costMeters.get(runId)!;
   }
 
-  getSpanRecorder(runId: string): SpanRecorder {
-    if (!this.spanRecorders.has(runId)) {
-      this.spanRecorders.set(runId, new SpanRecorder(runId));
-    }
-    return this.spanRecorders.get(runId)!;
-  }
-
   recordTimelineEvent(
     runId: string,
     type: string,
@@ -313,7 +305,6 @@ export class AgentToolkit {
   cleanupRun(runId: string): void {
     this.timelines.delete(runId);
     this.costMeters.delete(runId);
-    this.spanRecorders.delete(runId);
     this.loopDetector.reset();
   }
 
