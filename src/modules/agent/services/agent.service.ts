@@ -153,6 +153,8 @@ export class AgentService {
         permissions: {
           approvalStore: this.agentToolkit.getApprovalStore(),
           autoApprovalEnabled: this.configService.get<boolean>('agent.autoApproval', false),
+          globalPermissionRules: this.configService.get<Record<string, string | Record<string, string>>>('agent.globalPermissionRules'),
+          permissionRiskDefaults: this.configService.get<Record<string, string>>('agent.permissionRiskDefaults'),
         },
 
         // Sub-agents
@@ -248,7 +250,15 @@ export class AgentService {
 
       this.agentToolkit.recordTimelineEvent(runId, 'run.completed', { status: 'succeeded' });
 
-      this.logger.log(`Agent run completed for session ${sessionId}: tokens in=${lastAssistantMsg?.tokens?.input || 0}, out=${lastAssistantMsg?.tokens?.output || 0}, cost=${lastAssistantMsg?.cost || 0}`);
+      // Record token usage in CostMeter for aggregation
+      const inputTokens = result.inputTokens || lastAssistantMsg?.tokens?.input || 0;
+      const outputTokens = result.outputTokens || lastAssistantMsg?.tokens?.output || 0;
+      const modelId = lastAssistantMsg?.model;
+      if (inputTokens > 0 || outputTokens > 0) {
+        this.agentToolkit.recordTokenUsage(runId, inputTokens, outputTokens, modelId);
+      }
+
+      this.logger.log(`Agent run completed for session ${sessionId}: tokens in=${inputTokens}, out=${outputTokens}, cost=${lastAssistantMsg?.cost || 0}`);
 
       this.trackingService.completeRun({
         runId,
