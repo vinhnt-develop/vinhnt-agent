@@ -1,5 +1,14 @@
 import { registerAs } from '@nestjs/config';
 
+function safeJsonParse<T>(value: string | undefined, fallback: T): T {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export const agentConfig = registerAs('agent', () => ({
   workspaceRoot: process.env.AGENT_WORKSPACE_ROOT || '.',
   maxSteps: parseInt(process.env.AGENT_MAX_STEPS || '30', 10),
@@ -9,12 +18,14 @@ export const agentConfig = registerAs('agent', () => ({
   thinkingBudget: parseInt(process.env.AGENT_THINKING_BUDGET || '1024', 10),
   autoApproval: process.env.AGENT_AUTO_APPROVAL === 'true',
   maxKernelCacheSize: parseInt(process.env.AGENT_MAX_KERNEL_CACHE_SIZE || '50', 10),
-  globalPermissionRules: process.env.AGENT_PERMISSION_RULES
-    ? JSON.parse(process.env.AGENT_PERMISSION_RULES)
-    : undefined,
-  permissionRiskDefaults: process.env.AGENT_PERMISSION_RISK_DEFAULTS
-    ? JSON.parse(process.env.AGENT_PERMISSION_RISK_DEFAULTS)
-    : undefined,
+  globalPermissionRules: safeJsonParse<Record<string, string | Record<string, string>> | undefined>(
+    process.env.AGENT_PERMISSION_RULES,
+    undefined,
+  ),
+  permissionRiskDefaults: safeJsonParse<Record<string, string> | undefined>(
+    process.env.AGENT_PERMISSION_RISK_DEFAULTS,
+    undefined,
+  ),
 }));
 
 export const syncConfig = registerAs('sync', () => ({

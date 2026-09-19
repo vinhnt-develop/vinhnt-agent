@@ -33,6 +33,7 @@ export class AgentGateway
 
   private readonly logger = new Logger(AgentGateway.name);
   private unsubscribe?: () => void;
+  private errorCleanupInterval?: ReturnType<typeof setInterval>;
 
   /** Track error messages per runId with timestamp for TTL cleanup. */
   private runErrors = new Map<string, { error: string; timestamp: number }>();
@@ -52,33 +53,40 @@ export class AgentGateway
   onModuleInit() {
     const eventBus = this.agentService.getEventBus();
     this.unsubscribe = eventBus.subscribeAll((event) => {
-      const runId = (event as any).aggregateId as string | undefined;
-      if (!runId) return;
+      try {
+        const runId = (event as any).aggregateId as string | undefined;
+        if (!runId) return;
 
-      const clientId = this.runToClient.get(runId);
-      if (!clientId) return;
+        const clientId = this.runToClient.get(runId);
+        if (!clientId) return;
 
-      const sessionId = this.runToSession.get(runId);
-      const transformed = this.transformEvent(event, runId, sessionId);
-      if (transformed) {
-        this.server?.to(clientId).emit('run:event', transformed);
-      }
-
-      if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
-        const error = (event as any).data?.error;
-        if (error) {
-          this.runErrors.set(runId, { error, timestamp: Date.now() });
+        const sessionId = this.runToSession.get(runId);
+        const transformed = this.transformEvent(event, runId, sessionId);
+        if (transformed) {
+          this.server?.to(clientId).emit('run:event', transformed);
         }
+
+        if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
+          const error = (event as any).data?.error;
+          if (error) {
+            this.runErrors.set(runId, { error, timestamp: Date.now() });
+          }
+        }
+      } catch (err) {
+        this.logger.error('Error processing event bus message', err);
       }
     });
 
-    setInterval(() => this.cleanupRunErrors(), 60_000);
+    this.errorCleanupInterval = setInterval(() => this.cleanupRunErrors(), 60_000);
 
     this.logger.log('AgentGateway subscribed to EventBus');
   }
 
   onModuleDestroy() {
     this.unsubscribe?.();
+    if (this.errorCleanupInterval) {
+      clearInterval(this.errorCleanupInterval);
+    }
   }
 
   handleConnection(client: Socket) {
@@ -255,10 +263,16 @@ export class AgentGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { runId: string },
   ) {
-    this.logger.log(`Cancel requested by ${client.id} for run ${data.runId}`);
-    const sessionId = this.runToSession.get(data.runId);
-    await this.agentService.cancelRun(data.runId);
-    client.emit('run:cancelled', { runId: data.runId, sessionId });
+    try {
+      this.logger.log(`Cancel requested by ${client.id} for run ${data.runId}`);
+      const sessionId = this.runToSession.get(data.runId);
+      await this.agentService.cancelRun(data.runId);
+      client.emit('run:cancelled', { runId: data.runId, sessionId });
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Cancel failed for run ${data.runId}: ${errorMsg}`);
+      client.emit('run:error', { error: errorMsg, runId: data.runId });
+    }
   }
 
   @SubscribeMessage('messages')
@@ -266,8 +280,14 @@ export class AgentGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { sessionId: string },
   ) {
-    const messages = await this.agentService.getSessionMessages(data.sessionId);
-    client.emit('messages', messages);
+    try {
+      const messages = await this.agentService.getSessionMessages(data.sessionId);
+      client.emit('messages', messages);
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Failed to get messages for session ${data.sessionId}: ${errorMsg}`);
+      client.emit('run:error', { error: errorMsg, sessionId: data.sessionId });
+    }
   }
 
   private transformEvent(

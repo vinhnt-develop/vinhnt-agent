@@ -1,5 +1,4 @@
 import {
-  MiddlewareConsumer,
   Module,
   ValidationError,
   ValidationPipe,
@@ -7,7 +6,6 @@ import {
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { LoggingInterceptor, TransformInterceptor } from './interceptors';
-import { LoggerMiddleware } from '@/common/middleware';
 import { ValidationException } from '@/common/pipes';
 import { CatchEverythingFilter } from '@/common/filters';
 import { ConfigService } from '@nestjs/config';
@@ -46,8 +44,4 @@ import { ConfigService } from '@nestjs/config';
     },
   ],
 })
-export class CoreModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(LoggerMiddleware).forRoutes('{*splat}');
-  }
-}
+export class CoreModule {}

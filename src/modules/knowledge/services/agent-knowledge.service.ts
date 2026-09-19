@@ -8,6 +8,9 @@ import { KnowledgeService } from './knowledge.service';
 export class AgentKnowledgeService {
   private readonly logger = new Logger(AgentKnowledgeService.name);
   private readonly engines = new Map<string, LearningEngine>();
+  private readonly MAX_ENGINES = 100;
+  private readonly ENGINE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+  private readonly lastAccess = new Map<string, number>();
 
   constructor(
     private readonly memoryStore: SqliteMemoryStore,
@@ -16,9 +19,29 @@ export class AgentKnowledgeService {
 
   /**
    * Get or create a LearningEngine for a session.
+   * Uses LRU eviction with max size and TTL.
    */
   private getEngine(sessionId: string): LearningEngine {
+    this.lastAccess.set(sessionId, Date.now());
+
     if (!this.engines.has(sessionId)) {
+      // Evict oldest if at capacity
+      if (this.engines.size >= this.MAX_ENGINES) {
+        let oldestKey: string | null = null;
+        let oldestTime = Infinity;
+        for (const [key, lastTime] of this.lastAccess) {
+          if (lastTime < oldestTime) {
+            oldestTime = lastTime;
+            oldestKey = key;
+          }
+        }
+        if (oldestKey) {
+          this.engines.delete(oldestKey);
+          this.lastAccess.delete(oldestKey);
+          this.logger.debug(`Evicted LearningEngine for session ${oldestKey}`);
+        }
+      }
+
       const engine = new LearningEngine({
         config: {
           enabled: true,
@@ -109,5 +132,6 @@ export class AgentKnowledgeService {
    */
   dispose(sessionId: string): void {
     this.engines.delete(sessionId);
+    this.lastAccess.delete(sessionId);
   }
 }

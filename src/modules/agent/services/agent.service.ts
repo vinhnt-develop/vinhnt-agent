@@ -121,7 +121,7 @@ export class AgentService {
       await this.agentRegistry.register(codeReviewer);
 
       const provider = await this.providerFactory.getModelProvider(providerName);
-      const workspaceRoot = this.configService.get<string>('WORKSPACE_ROOT', '.');
+      const workspaceRoot = this.configService.get<string>('agent.workspaceRoot', '.');
 
       const kernelConfig: AgentKernelConfig = {
         model: provider,
@@ -320,33 +320,43 @@ export class AgentService {
     const { sessionId, prompt, model, provider } = input;
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
-    const kernel = await this.getKernel(model, provider);
-    const ctx = this.buildRequestContext(provider, model);
-    const handle = kernel.createRunHandle(prompt, ctx, sessionId);
+    try {
+      const kernel = await this.getKernel(model, provider);
+      const ctx = this.buildRequestContext(provider, model);
+      const handle = kernel.createRunHandle(prompt, ctx, sessionId);
 
-    const runId = handle.runId as string;
+      const runId = handle.runId as string;
 
-    this.trackingService.startRun({
-      runId,
-      sessionId,
-      model,
-      provider,
-      triggerType: 'websocket',
-    });
+      this.trackingService.startRun({
+        runId,
+        sessionId,
+        model,
+        provider,
+        triggerType: 'websocket',
+      });
 
-    this.activeHandles.set(runId, handle);
+      this.activeHandles.set(runId, handle);
 
-    handle.completed.then(
-      () => this.activeHandles.delete(runId),
-      () => this.activeHandles.delete(runId),
-    );
+      handle.completed.then(
+        () => this.activeHandles.delete(runId),
+        () => this.activeHandles.delete(runId),
+      ).catch((err) => {
+        this.logger.error(`Stream handle error for run ${runId}`, err);
+        this.activeHandles.delete(runId);
+      });
 
-    return { handle, runId };
+      return { handle, runId };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Failed to start streaming run for session ${sessionId}: ${errorMsg}`);
+      throw error;
+    }
   }
 
   async cancelRun(runId: string): Promise<void> {
     const handle = this.activeHandles.get(runId);
     if (handle && !handle.isCancelled) {
+      handle.isCancelled = true;
       handle.cancel();
       this.logger.log(`Cancelled run: ${runId}`);
     } else {

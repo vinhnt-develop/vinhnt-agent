@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ToolRegistry,
-  ToolSandbox,
   InMemoryFileHistory,
   FileReadTracker,
   createReadFileTool,
@@ -37,7 +36,6 @@ import {
   sanitizeEnv,
 } from '@vinhnt-sdk/security';
 import {
-  createSandbox,
   createHostSandbox,
   type SandboxConfig,
   type ProcessSandbox,
@@ -89,6 +87,8 @@ export class AgentToolkit {
   private readonly loopDetector = new LoopDetector(3, 20);
   private readonly timelines = new Map<string, Timeline>();
   private readonly costMeters = new Map<string, CostMeter>();
+  private readonly MAX_TIMELINES = 200;
+  private readonly MAX_COST_METERS = 200;
   private readonly envSnapshot: EnvSnapshot;
   private readonly runStateMachine = new RunStateMachine();
   private readonly pluginRegistry: PluginRegistry =
@@ -107,7 +107,7 @@ export class AgentToolkit {
 
   initializeTools(workspaceRoot?: string): void {
     const root =
-      workspaceRoot || this.configService.get<string>('WORKSPACE_ROOT', '.');
+      workspaceRoot || this.configService.get<string>('agent.workspaceRoot', '.');
 
     this.toolRegistry.register(createReadFileTool(root, this.fileReadTracker));
     this.toolRegistry.register(createWriteFileTool(root, this.fileReadTracker));
@@ -171,6 +171,31 @@ export class AgentToolkit {
           const method = (tool.handlerConfig.method as string) || 'POST';
           const headers =
             (tool.handlerConfig.headers as Record<string, string>) || {};
+
+          // SSRF protection: validate URL
+          try {
+            const parsed = new URL(url);
+            if (!['http:', 'https:'].includes(parsed.protocol)) {
+              return `Error: Only HTTP/HTTPS URLs are allowed. Got: ${parsed.protocol}`;
+            }
+            // Block private/internal IPs
+            const hostname = parsed.hostname;
+            if (
+              hostname === 'localhost' ||
+              hostname === '127.0.0.1' ||
+              hostname === '::1' ||
+              hostname === '0.0.0.0' ||
+              hostname.startsWith('10.') ||
+              hostname.startsWith('172.') ||
+              hostname.startsWith('192.168.') ||
+              hostname.startsWith('169.254.') ||
+              hostname.endsWith('.local')
+            ) {
+              return `Error: Private/internal URLs are not allowed for security reasons. Got: ${hostname}`;
+            }
+          } catch {
+            return `Error: Invalid URL format: ${url}`;
+          }
 
           try {
             const response = await fetch(url, {
@@ -271,6 +296,10 @@ export class AgentToolkit {
 
   getTimeline(runId: string): Timeline {
     if (!this.timelines.has(runId)) {
+      if (this.timelines.size >= this.MAX_TIMELINES) {
+        const firstKey = this.timelines.keys().next().value;
+        if (firstKey) this.timelines.delete(firstKey);
+      }
       this.timelines.set(runId, new Timeline());
     }
     return this.timelines.get(runId)!;
@@ -278,6 +307,10 @@ export class AgentToolkit {
 
   getCostMeter(runId: string): CostMeter {
     if (!this.costMeters.has(runId)) {
+      if (this.costMeters.size >= this.MAX_COST_METERS) {
+        const firstKey = this.costMeters.keys().next().value;
+        if (firstKey) this.costMeters.delete(firstKey);
+      }
       this.costMeters.set(runId, new CostMeter());
     }
     return this.costMeters.get(runId)!;
