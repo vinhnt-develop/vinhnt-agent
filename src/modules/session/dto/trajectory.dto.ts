@@ -90,6 +90,83 @@ export class TrajectoryStatsDto {
   metadata?: Record<string, unknown>;
 }
 
+export class TrajectoryToolCallDto {
+  @ApiProperty({ name: 'id', type: String, description: 'Tool call ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @Expose({ name: 'id' })
+  id!: string;
+
+  @ApiPropertyOptional({ name: 'runId', type: String, description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @Expose({ name: 'runId' })
+  runId?: string;
+
+  @ApiProperty({ name: 'toolName', type: String, description: 'Tool name', example: 'read_file' })
+  @Expose({ name: 'toolName' })
+  toolName!: string;
+
+  @ApiProperty({ name: 'toolInput', type: 'object', description: 'Tool input', additionalProperties: true, example: { path: 'src/main.ts' } })
+  @Expose({ name: 'toolInput' })
+  toolInput!: Record<string, unknown>;
+
+  @ApiProperty({ name: 'toolOutput', type: 'object', description: 'Tool output', additionalProperties: true, example: { content: '...' } })
+  @Expose({ name: 'toolOutput' })
+  toolOutput!: Record<string, unknown>;
+
+  @ApiProperty({ name: 'status', type: String, description: 'Tool status', enum: ['completed', 'failed'], example: 'completed' })
+  @Expose({ name: 'status' })
+  status!: string;
+
+  @ApiPropertyOptional({ name: 'errorMessage', type: String, description: 'Error message', example: 'File not found' })
+  @Expose({ name: 'errorMessage' })
+  errorMessage?: string;
+
+  @ApiProperty({ name: 'durationMs', type: Number, description: 'Duration in milliseconds', example: 500 })
+  @Expose({ name: 'durationMs' })
+  durationMs!: number;
+
+  @ApiPropertyOptional({ name: 'startedAt', type: String, description: 'Start timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
+  @Expose({ name: 'startedAt' })
+  startedAt?: string;
+
+  @ApiPropertyOptional({ name: 'completedAt', type: String, description: 'Completion timestamp (ISO 8601)', example: '2026-09-01T12:00:00.500Z' })
+  @Expose({ name: 'completedAt' })
+  completedAt?: string;
+
+  @ApiProperty({ name: 'stepNumber', type: Number, description: 'Step number this tool call belongs to', example: 0 })
+  @Expose({ name: 'stepNumber' })
+  stepNumber!: number;
+
+  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
+  @Expose({ name: 'metadata' })
+  metadata?: Record<string, unknown>;
+}
+
+export class TrajectoryStepDto {
+  @ApiProperty({ name: 'stepNumber', type: Number, description: 'Step number', example: 0 })
+  @Expose({ name: 'stepNumber' })
+  stepNumber!: number;
+
+  @ApiProperty({ name: 'status', type: String, description: 'Step status', enum: ['completed', 'failed', 'timeout'], example: 'completed' })
+  @Expose({ name: 'status' })
+  status!: 'completed' | 'failed' | 'timeout';
+
+  @ApiProperty({ name: 'toolCalls', type: [TrajectoryToolCallDto], description: 'Tool calls in this step' })
+  @Expose({ name: 'toolCalls' })
+  @Type(() => TrajectoryToolCallDto)
+  toolCalls!: TrajectoryToolCallDto[];
+
+  @ApiProperty({ name: 'inputTokens', type: Number, description: 'Input tokens for this step', example: 500 })
+  @Expose({ name: 'inputTokens' })
+  inputTokens!: number;
+
+  @ApiProperty({ name: 'outputTokens', type: Number, description: 'Output tokens for this step', example: 200 })
+  @Expose({ name: 'outputTokens' })
+  outputTokens!: number;
+
+  @ApiProperty({ name: 'durationMs', type: Number, description: 'Duration in milliseconds', example: 1000 })
+  @Expose({ name: 'durationMs' })
+  durationMs!: number;
+}
+
 export class TrajectoryTurnDto {
   @ApiProperty({ name: 'runId', type: String, description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
   @Expose({ name: 'runId' })
@@ -143,51 +220,14 @@ export class TrajectoryTurnDto {
   @Expose({ name: 'completedAt' })
   completedAt?: string;
 
-  @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
-  @Expose({ name: 'metadata' })
-  metadata?: Record<string, unknown>;
-}
+  @ApiPropertyOptional({ name: 'parentRunId', type: String, description: 'Parent run ID for sub-agents', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @Expose({ name: 'parentRunId' })
+  parentRunId?: string;
 
-export class TrajectoryToolCallDto {
-  @ApiProperty({ name: 'id', type: String, description: 'Tool call ID', example: '123e4567-e89b-12d3-a456-426614174000' })
-  @Expose({ name: 'id' })
-  id!: string;
-
-  @ApiPropertyOptional({ name: 'runId', type: String, description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
-  @Expose({ name: 'runId' })
-  runId?: string;
-
-  @ApiProperty({ name: 'toolName', type: String, description: 'Tool name', example: 'read_file' })
-  @Expose({ name: 'toolName' })
-  toolName!: string;
-
-  @ApiProperty({ name: 'toolInput', type: 'object', description: 'Tool input', additionalProperties: true, example: { path: 'src/main.ts' } })
-  @Expose({ name: 'toolInput' })
-  toolInput!: Record<string, unknown>;
-
-  @ApiProperty({ name: 'toolOutput', type: 'object', description: 'Tool output', additionalProperties: true, example: { content: '...' } })
-  @Expose({ name: 'toolOutput' })
-  toolOutput!: Record<string, unknown>;
-
-  @ApiProperty({ name: 'status', type: String, description: 'Tool status', enum: ['completed', 'failed'], example: 'completed' })
-  @Expose({ name: 'status' })
-  status!: string;
-
-  @ApiPropertyOptional({ name: 'errorMessage', type: String, description: 'Error message', example: 'File not found' })
-  @Expose({ name: 'errorMessage' })
-  errorMessage?: string;
-
-  @ApiProperty({ name: 'durationMs', type: Number, description: 'Duration in milliseconds', example: 500 })
-  @Expose({ name: 'durationMs' })
-  durationMs!: number;
-
-  @ApiPropertyOptional({ name: 'startedAt', type: String, description: 'Start timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z' })
-  @Expose({ name: 'startedAt' })
-  startedAt?: string;
-
-  @ApiPropertyOptional({ name: 'completedAt', type: String, description: 'Completion timestamp (ISO 8601)', example: '2026-09-01T12:00:00.500Z' })
-  @Expose({ name: 'completedAt' })
-  completedAt?: string;
+  @ApiProperty({ name: 'steps', type: [TrajectoryStepDto], description: 'Steps in this run' })
+  @Expose({ name: 'steps' })
+  @Type(() => TrajectoryStepDto)
+  steps!: TrajectoryStepDto[];
 
   @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
@@ -256,15 +296,10 @@ export class TrajectoryResponseDto {
   @Type(() => TrajectorySessionDto)
   session!: TrajectorySessionDto;
 
-  @ApiProperty({ name: 'runs', type: [TrajectoryTurnDto], description: 'List of runs' })
+  @ApiProperty({ name: 'runs', type: [TrajectoryTurnDto], description: 'List of runs with hierarchical steps and tool calls' })
   @Expose({ name: 'runs' })
   @Type(() => TrajectoryTurnDto)
   runs!: TrajectoryTurnDto[];
-
-  @ApiProperty({ name: 'toolCalls', type: [TrajectoryToolCallDto], description: 'List of tool calls' })
-  @Expose({ name: 'toolCalls' })
-  @Type(() => TrajectoryToolCallDto)
-  toolCalls!: TrajectoryToolCallDto[];
 
   @ApiProperty({ name: 'events', type: [TrajectoryEventDto], description: 'List of events' })
   @Expose({ name: 'events' })
