@@ -16,6 +16,12 @@ export class SqliteRunEventStore implements RunEventStore {
   ) {}
 
   async append(event: RunEvent): Promise<void> {
+    // Respect persist flag — ephemeral events (persist=false) are live-only
+    if (event.persist === false) {
+      for (const listener of this.listeners) { listener(event); }
+      return;
+    }
+
     this.db.insert(runEvents).values({
       runId: event.runId,
       type: event.type,
@@ -31,6 +37,12 @@ export class SqliteRunEventStore implements RunEventStore {
   }
 
   async appendTransactional(event: RunEvent, sessionUpdate?: { sessionId: string; updates: SessionUpdates }): Promise<void> {
+    // Respect persist flag — ephemeral events (persist=false) are live-only
+    if (event.persist === false) {
+      for (const listener of this.listeners) { listener(event); }
+      return;
+    }
+
     this.db.transaction((tx: any) => {
       tx.insert(runEvents).values({
         runId: event.runId,

@@ -404,7 +404,7 @@ export class TrajectoryService {
     if (steps.length === 0) return;
 
     const llmRequestEvents = runEvents.filter(e => e.type === 'llm.request');
-    const thinkingContentEvents = runEvents.filter(e => e.type === 'thinking.content');
+    const thinkingCompletedEvents = runEvents.filter(e => e.type === 'thinking.completed');
     const llmRetryEvents = runEvents.filter(e => e.type === 'llm.retry');
 
     for (const step of steps) {
@@ -435,8 +435,8 @@ export class TrajectoryService {
         ? new Date(lastToolCall.completedAt).getTime()
         : Date.now();
 
-      // Attach thinking content to steps
-      const thinkingEvent = thinkingContentEvents.find(e => {
+      // Attach thinking content to steps (from thinking.completed event)
+      const thinkingEvent = thinkingCompletedEvents.find(e => {
         const eventTime = e.occurredAt ? new Date(e.occurredAt).getTime() : 0;
         return eventTime >= stepStart && eventTime <= stepEnd;
       });

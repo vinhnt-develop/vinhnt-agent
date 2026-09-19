@@ -273,6 +273,13 @@ export class AgentGateway
         `Run ERROR | client=${client.id} session=${data.sessionId} duration=${durationMs}ms error=${errorMsg}`,
       );
       if (runId) {
+        // Mark run as failed in DB (prevents stuck "running" state)
+        this.trackingService.completeRun({
+          runId,
+          status: 'failed',
+          durationMs,
+          errorMessage: errorMsg,
+        });
         this.runToClient.delete(runId);
         this.runToSession.delete(runId);
         if (isSdkError(error)) {
