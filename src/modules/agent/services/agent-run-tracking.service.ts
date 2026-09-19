@@ -48,24 +48,38 @@ export class AgentRunTrackingService {
     inputTokens?: number;
     outputTokens?: number;
     reasoningTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    totalTokens?: number;
     totalCost?: number;
     durationMs?: number;
     toolCallsCount?: number;
     errorMessage?: string;
+    stopReason?: string;
+    errorMetadata?: { code?: string; retryable?: boolean };
     metadata?: Record<string, unknown>;
   }): void {
     try {
+      const metadata = {
+        ...data.metadata,
+        ...(data.errorMetadata ? { errorMetadata: data.errorMetadata } : {}),
+      };
+
       this.agentRunRepository.update(data.runId, {
         status: data.status,
         inputTokens: data.inputTokens,
         outputTokens: data.outputTokens,
         reasoningTokens: data.reasoningTokens,
+        cacheReadTokens: data.cacheReadTokens,
+        cacheWriteTokens: data.cacheWriteTokens,
+        totalTokens: data.totalTokens,
         totalCost: data.totalCost,
         durationMs: data.durationMs,
         toolCallsCount: data.toolCallsCount,
         errorMessage: data.errorMessage,
+        stopReason: data.stopReason,
         completedAt: new Date().toISOString(),
-        metadata: data.metadata,
+        metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
       });
       this.logger.debug(`Agent run completed: ${data.runId} status=${data.status}`);
     } catch (error) {

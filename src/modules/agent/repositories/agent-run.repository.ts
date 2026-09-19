@@ -36,10 +36,14 @@ export class AgentRunRepository {
     inputTokens?: number;
     outputTokens?: number;
     reasoningTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    totalTokens?: number;
     totalCost?: number;
     durationMs?: number;
     toolCallsCount?: number;
     errorMessage?: string;
+    stopReason?: string;
     completedAt?: string;
     metadata?: Record<string, unknown>;
   }) {
