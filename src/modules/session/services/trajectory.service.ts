@@ -30,6 +30,11 @@ export interface TrajectoryTurn {
   parentRunId?: string;
   steps: TrajectoryStep[];
   messages: TrajectoryMessage[];
+  contextCompressed?: {
+    originalCount?: number;
+    compressedCount?: number;
+    summary?: string;
+  };
 }
 
 export interface TrajectoryStep {
@@ -39,6 +44,27 @@ export interface TrajectoryStep {
   inputTokens: number;
   outputTokens: number;
   durationMs: number;
+  thinkingContent?: string;
+  llmRequest?: {
+    model?: string;
+    provider?: string;
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    messageCount?: number;
+    toolCount?: number;
+    systemPromptLength?: number;
+  };
+  llmRetry?: {
+    attempt?: number;
+    delayMs?: number;
+    reason?: string;
+  };
+  contextCompressed?: {
+    originalCount?: number;
+    compressedCount?: number;
+    summary?: string;
+  };
 }
 
 export interface TrajectoryToolCall {
@@ -222,6 +248,9 @@ export class TrajectoryService {
       const stepBoundaries = this.extractStepBoundaries(runEvents);
       const steps = this.buildSteps(stepBoundaries, runToolCalls);
 
+      // Extract event data for each step
+      this.attachEventDataToSteps(steps, runEvents);
+
       const runStart = run.startedAt ? new Date(run.startedAt).getTime() : 0;
       const runEnd = run.completedAt ? new Date(run.completedAt).getTime() : Date.now();
       const runMessages = allMessages.filter((m: any) => {
@@ -229,6 +258,14 @@ export class TrajectoryService {
         const msgTime = new Date(m.createdAt).getTime();
         return msgTime >= runStart && msgTime <= runEnd;
       });
+
+      // Extract run-level events
+      const contextCompressedEvent = runEvents.find(e => e.type === 'context.compressed');
+      const contextCompressed = contextCompressedEvent ? {
+        originalCount: contextCompressedEvent.data?.originalCount as number | undefined,
+        compressedCount: contextCompressedEvent.data?.compressedCount as number | undefined,
+        summary: contextCompressedEvent.data?.summary as string | undefined,
+      } : undefined;
 
       return {
         runId: run.id,
@@ -251,6 +288,7 @@ export class TrajectoryService {
         parentRunId: run.metadata?.parentRunId,
         steps,
         messages: this.mapMessagesToRun(runMessages),
+        contextCompressed,
       };
     });
   }
@@ -360,6 +398,67 @@ export class TrajectoryService {
     }
 
     return steps;
+  }
+
+  private attachEventDataToSteps(steps: TrajectoryStep[], runEvents: TrajectoryEvent[]): void {
+    if (steps.length === 0) return;
+
+    const llmRequestEvents = runEvents.filter(e => e.type === 'llm.request');
+    const thinkingContentEvents = runEvents.filter(e => e.type === 'thinking.content');
+    const llmRetryEvents = runEvents.filter(e => e.type === 'llm.retry');
+
+    for (const step of steps) {
+      const stepIndex = steps.indexOf(step);
+      const isFirstStep = stepIndex === 0;
+
+      // Attach LLM request data to the first step (typically the LLM call step)
+      if (isFirstStep && llmRequestEvents.length > 0) {
+        const requestEvent = llmRequestEvents[0];
+        step.llmRequest = {
+          model: requestEvent.data?.model as string | undefined,
+          provider: requestEvent.data?.provider as string | undefined,
+          temperature: requestEvent.data?.temperature as number | undefined,
+          maxTokens: requestEvent.data?.maxTokens as number | undefined,
+          topP: requestEvent.data?.topP as number | undefined,
+          messageCount: requestEvent.data?.messageCount as number | undefined,
+          toolCount: requestEvent.data?.toolCount as number | undefined,
+          systemPromptLength: requestEvent.data?.systemPromptLength as number | undefined,
+        };
+      }
+
+      // Helper to compute step time bounds
+      const stepStart = step.toolCalls.length > 0 && step.toolCalls[0].startedAt
+        ? new Date(step.toolCalls[0].startedAt).getTime()
+        : 0;
+      const lastToolCall = step.toolCalls.length > 0 ? step.toolCalls[step.toolCalls.length - 1] : undefined;
+      const stepEnd = lastToolCall?.completedAt
+        ? new Date(lastToolCall.completedAt).getTime()
+        : Date.now();
+
+      // Attach thinking content to steps
+      const thinkingEvent = thinkingContentEvents.find(e => {
+        const eventTime = e.occurredAt ? new Date(e.occurredAt).getTime() : 0;
+        return eventTime >= stepStart && eventTime <= stepEnd;
+      });
+
+      if (thinkingEvent) {
+        step.thinkingContent = thinkingEvent.data?.content as string | undefined;
+      }
+
+      // Attach LLM retry data to steps
+      const retryEvent = llmRetryEvents.find(e => {
+        const eventTime = e.occurredAt ? new Date(e.occurredAt).getTime() : 0;
+        return eventTime >= stepStart && eventTime <= stepEnd;
+      });
+
+      if (retryEvent) {
+        step.llmRetry = {
+          attempt: retryEvent.data?.attempt as number | undefined,
+          delayMs: retryEvent.data?.delayMs as number | undefined,
+          reason: retryEvent.data?.reason as string | undefined,
+        };
+      }
+    }
   }
 
   private assignToolCallsToStep(boundary: StepBoundary, toolCalls: any[]): any[] {
