@@ -160,8 +160,16 @@ export class AgentService {
         // Sub-agents
         agentRegistry: this.agentRegistry,
 
-        // Plugins
-        pluginManager: this.agentToolkit.getPluginRegistry() as any,
+        // Plugins — pass a minimal no-op plugin manager that satisfies the kernel's fireHook contract
+        pluginManager: {
+          async register() {},
+          async activate() {},
+          async deactivate() {},
+          list: () => [],
+          get: () => undefined,
+          getActivePlugins: () => [],
+          async fireHook() { return { ok: true } as any; },
+        } as any,
       };
 
       const kernel = new AgentKernel(kernelConfig);
