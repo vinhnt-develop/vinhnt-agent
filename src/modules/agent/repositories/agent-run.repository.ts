@@ -77,4 +77,19 @@ export class AgentRunRepository {
       .where(eq(agentRuns.id, id))
       .run();
   }
+
+  cleanupStaleRuns(sessionId: string, staleThresholdMs = 5 * 60 * 1000) {
+    const threshold = new Date(Date.now() - staleThresholdMs).toISOString();
+    return this.db
+      .update(agentRuns)
+      .set({
+        status: 'failed',
+        errorMessage: 'Run timed out (stale)',
+        completedAt: sql`datetime('now')`,
+      })
+      .where(
+        sql`${agentRuns.sessionId} = ${sessionId} AND ${agentRuns.status} = 'running' AND ${agentRuns.startedAt} < ${threshold}`
+      )
+      .run();
+  }
 }

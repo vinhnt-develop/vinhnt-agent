@@ -48,7 +48,7 @@ export class SessionRepository {
     return { data: rows, total, page: dto.page!, limit: dto.limit! };
   }
 
-  async create(data: { title?: string; projectId?: string; model?: string; provider?: string }) {
+  async create(data: { title?: string; projectId?: string; model?: string; provider?: string; directory?: string; gitBranch?: string; version?: string; parentId?: string }) {
     const id = uuid();
     const now = new Date().toISOString();
 
@@ -58,6 +58,10 @@ export class SessionRepository {
       projectId: data.projectId,
       model: data.model,
       provider: data.provider,
+      directory: data.directory,
+      gitBranch: data.gitBranch,
+      version: data.version,
+      parentId: data.parentId,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -81,7 +85,7 @@ export class SessionRepository {
     this.db.update(sessions).set({ deletedAt: new Date().toISOString() }).where(eq(sessions.id, id)).run();
   }
 
-  async addMessage(data: { sessionId: string; role: string; content?: string; toolCallId?: string }) {
+  async addMessage(data: { sessionId: string; role: string; content?: string; toolCallId?: string; contentBlocks?: unknown[] }) {
     const id = uuid();
     const now = new Date().toISOString();
 
@@ -91,6 +95,7 @@ export class SessionRepository {
       role: data.role,
       content: data.content ?? '',
       toolCallId: data.toolCallId,
+      contentBlocks: data.contentBlocks ?? [],
       createdAt: now,
     }).run();
 

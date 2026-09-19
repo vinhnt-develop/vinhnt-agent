@@ -167,6 +167,48 @@ export class TrajectoryStepDto {
   durationMs!: number;
 }
 
+export class TrajectoryMessageDto {
+  @ApiProperty({ name: 'role', type: String, description: 'Message role', enum: ['system', 'user', 'assistant', 'tool'], example: 'user' })
+  @Expose({ name: 'role' })
+  role!: string;
+
+  @ApiProperty({ name: 'content', type: String, description: 'Message content', example: 'Hello, how are you?' })
+  @Expose({ name: 'content' })
+  content!: string;
+
+  @ApiPropertyOptional({ name: 'contentBlocks', type: [Object], description: 'Structured content blocks (tool_use, tool_result, thinking)' })
+  @Expose({ name: 'contentBlocks' })
+  contentBlocks?: unknown[];
+
+  @ApiPropertyOptional({ name: 'model', type: String, description: 'Model used', example: 'gpt-4o' })
+  @Expose({ name: 'model' })
+  model?: string;
+
+  @ApiPropertyOptional({ name: 'provider', type: String, description: 'Provider', example: 'openai' })
+  @Expose({ name: 'provider' })
+  provider?: string;
+
+  @ApiPropertyOptional({ name: 'inputTokens', type: Number, description: 'Input tokens' })
+  @Expose({ name: 'inputTokens' })
+  inputTokens?: number;
+
+  @ApiPropertyOptional({ name: 'outputTokens', type: Number, description: 'Output tokens' })
+  @Expose({ name: 'outputTokens' })
+  outputTokens?: number;
+
+  @ApiPropertyOptional({ name: 'cost', type: Number, description: 'Cost in USD' })
+  @Expose({ name: 'cost' })
+  cost?: number;
+
+  @ApiPropertyOptional({ name: 'toolCallId', type: String, description: 'Tool call ID for tool results' })
+  @Expose({ name: 'toolCallId' })
+  toolCallId?: string;
+
+  @ApiPropertyOptional({ name: 'createdAt', type: String, description: 'Creation timestamp (ISO 8601)' })
+  @Expose({ name: 'createdAt' })
+  createdAt?: string;
+}
+
 export class TrajectoryTurnDto {
   @ApiProperty({ name: 'runId', type: String, description: 'Run ID', example: '123e4567-e89b-12d3-a456-426614174000' })
   @Expose({ name: 'runId' })
@@ -228,6 +270,11 @@ export class TrajectoryTurnDto {
   @Expose({ name: 'steps' })
   @Type(() => TrajectoryStepDto)
   steps!: TrajectoryStepDto[];
+
+  @ApiProperty({ name: 'messages', type: [TrajectoryMessageDto], description: 'Messages in this run (system/user/assistant)' })
+  @Expose({ name: 'messages' })
+  @Type(() => TrajectoryMessageDto)
+  messages!: TrajectoryMessageDto[];
 
   @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })
@@ -310,6 +357,11 @@ export class TrajectoryResponseDto {
   @Expose({ name: 'stats' })
   @Type(() => TrajectoryStatsDto)
   stats!: TrajectoryStatsDto;
+
+  @ApiProperty({ name: 'allMessages', type: [TrajectoryMessageDto], description: 'All messages in the session' })
+  @Expose({ name: 'allMessages' })
+  @Type(() => TrajectoryMessageDto)
+  allMessages!: TrajectoryMessageDto[];
 
   @ApiPropertyOptional({ name: 'metadata', type: 'object', description: 'Extensible metadata', additionalProperties: true })
   @Expose({ name: 'metadata' })

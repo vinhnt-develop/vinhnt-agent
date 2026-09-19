@@ -217,19 +217,20 @@ export class AgentGateway
           runId,
         });
       } else {
-        const tokens = completed?.usage;
+        const inputTokens = completed?.usage?.inputTokens ?? 0;
+        const outputTokens = completed?.usage?.outputTokens ?? 0;
         this.logger.log(
-          `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} tokens=${tokens?.promptTokens ?? 0}+${tokens?.completionTokens ?? 0}`,
+          `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} tokens=${inputTokens}+${outputTokens}`,
         );
 
         this.trackingService.completeRun({
           runId,
           status: 'succeeded',
-          inputTokens: tokens?.promptTokens,
-          outputTokens: tokens?.completionTokens,
-          totalCost: completed?.cost,
-          durationMs,
-          toolCallsCount: completed?.toolCalls?.length,
+          inputTokens: completed?.usage?.inputTokens,
+          outputTokens: completed?.usage?.outputTokens,
+          totalCost: completed?.usage?.cost,
+          durationMs: completed?.usage?.durationMs ?? durationMs,
+          toolCallsCount: completed?.usage?.toolCallsCount,
         });
 
         client.emit('run:completed', {

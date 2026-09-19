@@ -5,29 +5,15 @@
     {
       "idx": 0,
       "version": "6",
-      "when": 1789184377577,
-      "tag": "0000_puzzling_penance",
+      "when": 1789820920172,
+      "tag": "0000_broad_sharon_ventura",
       "breakpoints": true
     },
     {
       "idx": 1,
       "version": "6",
-      "when": 1789189355411,
-      "tag": "0001_robust_the_fallen",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1789189845652,
-      "tag": "0002_nebulous_iron_lad",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1789191200000,
-      "tag": "0003_add_provider_api_keys",
+      "when": 1789821000000,
+      "tag": "0001_add_session_metadata",
       "breakpoints": true
     }
   ]

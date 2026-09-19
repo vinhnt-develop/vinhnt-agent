@@ -4,6 +4,7 @@ import { ToolExecutionRepository } from '@/modules/agent/repositories/tool-execu
 import { Inject } from '@nestjs/common';
 import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { runEvents } from '@/modules/agent/schemas/agent.schema';
+import { messages } from '@/modules/session/schemas/session.schema';
 import { eq, sql } from 'drizzle-orm';
 import { SessionRepository } from '../repositories/session.repository';
 
@@ -23,6 +24,7 @@ export interface TrajectoryTurn {
   completedAt?: string;
   parentRunId?: string;
   steps: TrajectoryStep[];
+  messages: TrajectoryMessage[];
 }
 
 export interface TrajectoryStep {
@@ -46,6 +48,19 @@ export interface TrajectoryToolCall {
   startedAt?: string;
   completedAt?: string;
   stepNumber: number;
+}
+
+export interface TrajectoryMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  contentBlocks?: unknown[];
+  model?: string;
+  provider?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cost?: number;
+  toolCallId?: string;
+  createdAt?: string;
 }
 
 export interface TrajectoryEvent {
@@ -88,6 +103,7 @@ export interface TrajectoryResponse {
   runs: TrajectoryTurn[];
   events: TrajectoryEvent[];
   stats: TrajectoryStats;
+  allMessages: TrajectoryMessage[];
 }
 
 interface StepBoundary {
@@ -112,6 +128,9 @@ export class TrajectoryService {
       throw new NotFoundException('Session not found');
     }
 
+    // Clean up stale zombie runs (running for > 5 min with no completion)
+    this.agentRunRepository.cleanupStaleRuns(sessionId);
+
     const runs = this.agentRunRepository.findBySessionId(sessionId);
     const toolCalls = this.toolExecutionRepository.findBySessionId(sessionId);
 
@@ -126,10 +145,9 @@ export class TrajectoryService {
         .all() as TrajectoryEvent[];
     }
 
-    const messages = await this.sessionRepository.findMessages(sessionId);
-
-    const hierarchicalRuns = this.buildHierarchicalRuns(runs, toolCalls, events);
-    const stats = this.computeStats(hierarchicalRuns, toolCalls, messages);
+    const allMessages = this.getAllMessages(sessionId);
+    const hierarchicalRuns = this.buildHierarchicalRuns(runs, toolCalls, events, allMessages);
+    const stats = this.computeStats(hierarchicalRuns, toolCalls, allMessages);
 
     return {
       session: {
@@ -149,13 +167,43 @@ export class TrajectoryService {
         occurredAt: e.occurredAt,
       })),
       stats,
+      allMessages: allMessages.map((m: any) => this.mapMessage(m)),
     };
+  }
+
+  private getAllMessages(sessionId: string): any[] {
+    return this.db
+      .select()
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .orderBy(sql`${messages.createdAt} ASC`)
+      .all();
+  }
+
+  private mapMessage(msg: any): TrajectoryMessage {
+    return {
+      role: msg.role,
+      content: msg.content || '',
+      contentBlocks: msg.contentBlocks ?? undefined,
+      model: msg.model ?? undefined,
+      provider: msg.provider ?? undefined,
+      inputTokens: msg.inputTokens ?? undefined,
+      outputTokens: msg.outputTokens ?? undefined,
+      cost: msg.cost ?? undefined,
+      toolCallId: msg.toolCallId ?? undefined,
+      createdAt: msg.createdAt ?? undefined,
+    };
+  }
+
+  private mapMessagesToRun(runMessages: any[]): TrajectoryMessage[] {
+    return runMessages.map((m) => this.mapMessage(m));
   }
 
   private buildHierarchicalRuns(
     runs: any[],
     toolCalls: any[],
     events: TrajectoryEvent[],
+    allMessages: any[],
   ): TrajectoryTurn[] {
     const eventsByRun = this.groupEventsByRunId(events);
     const toolCallsByRunId = this.groupToolCallsByRunId(toolCalls);
@@ -165,6 +213,14 @@ export class TrajectoryService {
       const runToolCalls = toolCallsByRunId.get(run.id) || [];
       const stepBoundaries = this.extractStepBoundaries(runEvents);
       const steps = this.buildSteps(stepBoundaries, runToolCalls);
+
+      const runStart = run.startedAt ? new Date(run.startedAt).getTime() : 0;
+      const runEnd = run.completedAt ? new Date(run.completedAt).getTime() : Date.now();
+      const runMessages = allMessages.filter((m: any) => {
+        if (!m.createdAt) return false;
+        const msgTime = new Date(m.createdAt).getTime();
+        return msgTime >= runStart && msgTime <= runEnd;
+      });
 
       return {
         runId: run.id,
@@ -182,6 +238,7 @@ export class TrajectoryService {
         completedAt: run.completedAt,
         parentRunId: run.metadata?.parentRunId,
         steps,
+        messages: this.mapMessagesToRun(runMessages),
       };
     });
   }
@@ -353,8 +410,12 @@ export class TrajectoryService {
     let otherTokens = 0;
 
     for (const msg of messages) {
-      const msgTokens =
+      let msgTokens =
         (msg.inputTokens || 0) + (msg.outputTokens || 0) + (msg.reasoningTokens || 0);
+      // Estimate tokens from content length when provider reports 0 (e.g. LM Studio)
+      if (msgTokens === 0 && msg.content) {
+        msgTokens = Math.ceil(msg.content.length / 4);
+      }
       if (msg.role === 'user') {
         userTokens += msgTokens;
       } else if (msg.role === 'assistant') {
