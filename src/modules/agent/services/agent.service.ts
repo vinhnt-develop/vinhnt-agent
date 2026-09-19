@@ -4,6 +4,7 @@ import type { AgentKernelConfig } from '@vinhnt-sdk/core';
 import {
   InMemoryAgentRegistry,
   createAgent,
+  AgentKernel,
 } from '@vinhnt-sdk/core';
 import type { AgentId } from '@vinhnt-sdk/schema';
 import type {
@@ -100,7 +101,6 @@ export class AgentService {
     this.evictOldestKernel();
 
     try {
-      const { AgentKernel } = await import('@vinhnt-sdk/core');
       const tools = this.agentToolkit.getToolsAsDefinitions() as ToolDefinitionLike[];
 
       // Register memory search tool
@@ -273,8 +273,7 @@ export class AgentService {
 
       // Process turn to extract facts into memory
       try {
-        const allMessages = await this.sessionStore.listMessages(sessionId);
-        const turnMessages = allMessages
+        const turnMessages = messages
           .filter((m) => m.role === 'user' || m.role === 'assistant')
           .map((m) => ({ role: m.role, content: m.content || '' }));
         await this.knowledgeService.processTurn(sessionId, turnMessages);

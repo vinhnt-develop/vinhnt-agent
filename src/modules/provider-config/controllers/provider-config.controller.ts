@@ -79,7 +79,11 @@ export class ProviderConfigController {
           ? `${modelsUrl}?key=${config.apiKey}`
           : modelsUrl;
 
-        const response = await fetch(fetchUrl, { method: 'GET', headers });
+        const response = await fetch(fetchUrl, {
+          method: 'GET',
+          headers,
+          signal: AbortSignal.timeout(10_000),
+        });
         if (!response.ok) {
           results.push({
             provider: config.provider,
