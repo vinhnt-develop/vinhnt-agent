@@ -1,5 +1,5 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
-import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import type {
   ModelProvider,
   ModelRequest,
@@ -54,7 +54,7 @@ export class ProviderFactory {
   private readonly MODEL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
   constructor(
-    @Inject(DATABASE_CONNECTION) private readonly db: any,
+    @Inject(DATABASE_CONNECTION) private readonly db: DatabaseConnection,
     private readonly providerConfigService: ProviderConfigService,
   ) {}
 

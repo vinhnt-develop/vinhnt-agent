@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AgentRunRepository } from '@/modules/agent/repositories/agent-run.repository';
 import { ToolExecutionRepository } from '@/modules/agent/repositories/tool-execution.repository';
 import { Inject } from '@nestjs/common';
-import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { runEvents } from '@/modules/agent/schemas/agent.schema';
 import { eq, sql } from 'drizzle-orm';
 import { SessionRepository } from '../repositories/session.repository';
@@ -82,7 +82,7 @@ export interface TrajectoryResponse {
 @Injectable()
 export class TrajectoryService {
   constructor(
-    @Inject(DATABASE_CONNECTION) private readonly db: any,
+    @Inject(DATABASE_CONNECTION) private readonly db: DatabaseConnection,
     private readonly agentRunRepository: AgentRunRepository,
     private readonly toolExecutionRepository: ToolExecutionRepository,
     private readonly sessionRepository: SessionRepository,
@@ -106,7 +106,7 @@ export class TrajectoryService {
         .from(runEvents)
         .where(sql`${runEvents.runId} IN ${runIds}`)
         .orderBy(sql`${runEvents.occurredAt} ASC`)
-        .all();
+        .all() as TrajectoryEvent[];
     }
 
     // Get messages for context breakdown
@@ -117,9 +117,9 @@ export class TrajectoryService {
     return {
       session: {
         id: session.id,
-        title: session.title,
-        model: session.model,
-        provider: session.provider,
+        title: session.title ?? undefined,
+        model: session.model ?? undefined,
+        provider: session.provider ?? undefined,
       },
       runs: runs.map((r: any) => ({
         runId: r.id,

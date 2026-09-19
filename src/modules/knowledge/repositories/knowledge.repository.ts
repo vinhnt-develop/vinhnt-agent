@@ -1,12 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { knowledgeEntries } from '../schemas/knowledge.schema';
 import { eq, sql, desc, and } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 
 @Injectable()
 export class KnowledgeRepository {
-  constructor(@Inject(DATABASE_CONNECTION) private readonly db: any) {}
+  constructor(@Inject(DATABASE_CONNECTION) private readonly db: DatabaseConnection) {}
 
   async findById(id: string) {
     return this.db.select().from(knowledgeEntries).where(eq(knowledgeEntries.id, id)).get();

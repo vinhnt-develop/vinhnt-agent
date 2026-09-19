@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { agentRuns } from '@/modules/agent/schemas/agent.schema';
 import { eq, sql } from 'drizzle-orm';
 
 @Injectable()
 export class AgentRunRepository {
-  constructor(@Inject(DATABASE_CONNECTION) private readonly db: any) {}
+  constructor(@Inject(DATABASE_CONNECTION) private readonly db: DatabaseConnection) {}
 
   create(data: {
     id: string;

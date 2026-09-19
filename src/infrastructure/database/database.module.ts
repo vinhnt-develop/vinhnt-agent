@@ -6,13 +6,14 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import * as schema from './schema';
 import path from 'node:path';
 import fs from 'node:fs';
+import type { DatabaseConnection } from './database.types';
 
 @Module({
   providers: [
     {
       provide: DATABASE_CONNECTION,
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
+      useFactory: (configService: ConfigService): DatabaseConnection => {
         const dbUrl = configService.getOrThrow<string>('database.url');
         // Extract file path from "file:./agent.db" format
         const filePath = dbUrl.replace('file:', '');
@@ -31,8 +32,7 @@ import fs from 'node:fs';
         sqlite.pragma('foreign_keys = ON');
 
         // Use drizzle with schema for type-safe queries
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const db = (drizzle as any)(sqlite, { schema });
+        const db = drizzle(sqlite, { schema });
         return db;
       },
     },

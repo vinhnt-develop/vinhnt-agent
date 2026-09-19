@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { projects } from '../schemas/project.schema';
 import { eq, sql, desc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
@@ -7,7 +7,7 @@ import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
 export class ProjectRepository {
-  constructor(@Inject(DATABASE_CONNECTION) private readonly db: any) {}
+  constructor(@Inject(DATABASE_CONNECTION) private readonly db: DatabaseConnection) {}
 
   async findById(id: string) {
     return this.db.select().from(projects).where(eq(projects.id, id)).get();

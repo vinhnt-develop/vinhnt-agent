@@ -76,6 +76,7 @@ export class AgentKnowledgeService {
           key: k.key,
           value: k.value,
           tier: 'stable' as const,
+          charLimit: 1400,
         }));
 
       return [...sdkMemory, ...knowledgeMemory];

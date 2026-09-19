@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { sessions, messages } from '../schemas/session.schema';
 import { eq, sql, desc, asc } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
@@ -7,7 +7,7 @@ import { PaginationDto } from '@/common/dto/pagination.dto';
 
 @Injectable()
 export class SessionRepository {
-  constructor(@Inject(DATABASE_CONNECTION) private readonly db: any) {}
+  constructor(@Inject(DATABASE_CONNECTION) private readonly db: DatabaseConnection) {}
 
   async findById(id: string) {
     return this.db
