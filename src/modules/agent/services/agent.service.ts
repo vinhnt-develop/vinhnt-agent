@@ -11,6 +11,7 @@ import type {
 } from '@vinhnt-sdk/schema';
 import { InMemoryEventBus } from '@vinhnt-sdk/event';
 import { TokenMeter } from '@vinhnt-sdk/llm';
+import { createMemorySearchTool } from '@vinhnt-sdk/knowledge';
 import { SqliteSessionStore } from '@/infrastructure/storage/sqlite-session-store';
 import { SqliteMemoryStore } from '@/infrastructure/storage/sqlite-memory-store';
 import { SqliteRunEventStore } from '@/infrastructure/storage/sqlite-run-event-store';
@@ -19,6 +20,7 @@ import {
 } from '@/infrastructure/model/provider-factory';
 import { AgentToolkit } from './agent-toolkit';
 import { AgentRunTrackingService } from './agent-run-tracking.service';
+import { AgentKnowledgeService } from '@/modules/knowledge/services/agent-knowledge.service';
 import { extractActualErrorMessage } from '@/shared/error-utils';
 
 export interface RunAgentInput {
@@ -59,6 +61,7 @@ export class AgentService {
     private readonly configService: ConfigService,
     private readonly agentToolkit: AgentToolkit,
     private readonly trackingService: AgentRunTrackingService,
+    private readonly knowledgeService: AgentKnowledgeService,
   ) {
     this.maxKernelCacheSize = this.configService.get<number>('agent.maxKernelCacheSize', 50);
   }
@@ -97,6 +100,11 @@ export class AgentService {
     try {
       const { AgentKernel } = await import('@vinhnt-sdk/core');
       const tools = this.agentToolkit.getToolsAsDefinitions() as ToolDefinitionLike[];
+
+      // Register memory search tool
+      const memorySearchTool = createMemorySearchTool(this.sessionStore as any);
+      const allTools = [...tools, memorySearchTool as any];
+
       const provider = await this.providerFactory.getModelProvider(providerName);
       const workspaceRoot = this.configService.get<string>('WORKSPACE_ROOT', '.');
 
@@ -105,7 +113,7 @@ export class AgentService {
         store: this.runEventStore,
         sessionStore: this.sessionStore,
         eventBus: this.eventBus,
-        tools: tools.length > 0 ? (tools as any) : undefined,
+        tools: allTools.length > 0 ? (allTools as any) : undefined,
 
         // Limits
         maxSteps: this.configService.get<number>('agent.maxSteps', 30),
@@ -237,6 +245,17 @@ export class AgentService {
         durationMs: result.durationMs || durationMs,
         metadata: { model: lastAssistantMsg?.model, provider: lastAssistantMsg?.provider },
       });
+
+      // Process turn to extract facts into memory
+      try {
+        const allMessages = await this.sessionStore.listMessages(sessionId);
+        const turnMessages = allMessages
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => ({ role: m.role, content: m.content || '' }));
+        await this.knowledgeService.processTurn(sessionId, turnMessages);
+      } catch (memError) {
+        this.logger.warn(`Memory processing failed for session ${sessionId}`, memError);
+      }
 
       return {
         runId,
