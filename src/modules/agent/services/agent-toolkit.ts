@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   ToolRegistry,
@@ -74,7 +74,7 @@ export interface AgentToolkitConfig {
 }
 
 @Injectable()
-export class AgentToolkit {
+export class AgentToolkit implements OnModuleInit {
   private readonly logger = new Logger(AgentToolkit.name);
   private readonly toolRegistry = new ToolRegistry();
   private readonly approvalStore: ApprovalStore = new InMemoryApprovalStore();
@@ -103,6 +103,19 @@ export class AgentToolkit {
     private readonly mcpServerService: McpServerService,
   ) {
     this.envSnapshot = resolveEnv(process.env);
+  }
+
+  async onModuleInit(): Promise<void> {
+    try {
+      this.initializeTools();
+    } catch (error) {
+      this.logger.error('Failed to initialize built-in tools', error);
+    }
+    try {
+      await this.connectMcpServersFromDb();
+    } catch (error) {
+      this.logger.warn('Failed to connect MCP servers on startup', error);
+    }
   }
 
   initializeTools(workspaceRoot?: string): void {

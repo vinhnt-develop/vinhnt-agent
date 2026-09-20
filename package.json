@@ -33,7 +33,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/websockets": "^11.2.3",
     "@vinhnt-sdk/config": "^0.4.2",
-    "@vinhnt-sdk/core": "^0.6.1",
+    "@vinhnt-sdk/core": "^0.7.0",
     "@vinhnt-sdk/event": "^0.4.2",
     "@vinhnt-sdk/guard": "^0.4.2",
     "@vinhnt-sdk/knowledge": "^0.4.2",
@@ -47,7 +47,7 @@
     "@vinhnt-sdk/schema": "^0.5.0",
     "@vinhnt-sdk/security": "^0.4.2",
     "@vinhnt-sdk/session": "^0.4.2",
-    "@vinhnt-sdk/step-executor": "^0.4.2",
+    "@vinhnt-sdk/step-executor": "^0.4.3",
     "@vinhnt-sdk/tools": "^0.4.2",
     "@vinhnt-sdk/trace": "^0.4.2",
     "better-sqlite3": "^13.0.3",
@@ -119,3 +119,5 @@
     "testEnvironment": "node"
   }
 }
+
+

@@ -92,12 +92,45 @@ export class AgentService {
     if (oldestKey) this.kernels.delete(oldestKey);
   }
 
+  private getSettingsHash(settings?: Partial<KernelSettings>): string {
+    if (!settings) return '';
+    // Only hash the fields that affect kernel behavior
+    const relevant = [
+      settings.maxSteps,
+      settings.maxTokens,
+      settings.stepTimeout,
+      settings.thinkingBudget,
+      settings.maxToolCallsPerStep,
+      settings.maxConcurrentToolCalls,
+      settings.selfCorrectOnFailure,
+      settings.maxSelfCorrectAttempts,
+      settings.doomLoopThreshold,
+      settings.compactionThreshold,
+      settings.maxSubAgentDepth,
+      settings.toolChoice,
+      settings.parallelToolCalls,
+    ];
+    return JSON.stringify(relevant);
+  }
+
   private async getKernel(modelId?: string, providerName?: string, settings?: Partial<KernelSettings>): Promise<any> {
     const cacheKey = this.getKernelCacheKey(providerName, modelId);
-    const cached = this.kernels.get(cacheKey);
+    const settingsHash = this.getSettingsHash(settings);
+    const fullCacheKey = settingsHash ? `${cacheKey}|${settingsHash}` : cacheKey;
+
+    const cached = this.kernels.get(fullCacheKey);
     if (cached) {
       cached.lastAccess = Date.now();
       return cached.kernel;
+    }
+
+    // Evict non-default cached kernels for same provider/model when settings differ
+    if (settingsHash) {
+      for (const [key] of this.kernels) {
+        if (key.startsWith(cacheKey + '|')) {
+          this.kernels.delete(key);
+        }
+      }
     }
 
     this.evictOldestKernel();
@@ -132,16 +165,29 @@ export class AgentService {
         eventBus: this.eventBus,
         tools: allTools.length > 0 ? (allTools as any) : undefined,
 
-        // Limits — use settings if provided, otherwise fall back to env/config
+        // Model settings (nested pattern — aligned with SDK v0.7.0)
+        modelSettings: {
+          temperature: settings?.temperature ?? this.configService.get<number>('agent.temperature', 0.7),
+          topP: settings?.topP ?? this.configService.get<number>('agent.topP', 1.0),
+          ...(settings?.toolChoice !== undefined ? { toolChoice: settings.toolChoice } : {}),
+          parallelToolCalls: settings?.parallelToolCalls ?? true,
+          ...(settings?.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
+          ...(settings?.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
+        },
+
+        // Limits
         maxSteps: settings?.maxSteps ?? this.configService.get<number>('agent.maxSteps', 30),
         maxTokens: settings?.maxTokens ?? this.configService.get<number>('agent.maxTokens', 4096),
         stepTimeout: settings?.stepTimeout ?? this.configService.get<number>('agent.stepTimeout', 120_000),
         maxToolCallsPerStep: settings?.maxToolCallsPerStep ?? 10,
         maxConcurrentToolCalls: settings?.maxConcurrentToolCalls ?? 5,
 
-        // Resilience — wire from AgentToolkit
+        // Resilience
         circuitBreaker: this.agentToolkit.getCircuitBreaker() as any,
         doomLoopThreshold: settings?.doomLoopThreshold ?? this.configService.get<number>('agent.doomLoopThreshold', 3),
+        maxRetries: settings?.maxRetries ?? 3,
+        retryBackoffMs: settings?.backoffMs ?? 1000,
+        maxRetryBackoffMs: settings?.maxBackoffMs ?? 30000,
 
         // Self-correction
         selfCorrectOnFailure: settings?.selfCorrectOnFailure ?? true,
@@ -149,6 +195,9 @@ export class AgentService {
 
         // Thinking
         thinkingBudget: settings?.thinkingBudget ?? this.configService.get<number>('agent.thinkingBudget', 1024),
+
+        // Context management
+        compactionThreshold: settings?.compactionThreshold ?? 0.75,
 
         // Sub-agents
         maxSubAgentDepth: settings?.maxSubAgentDepth ?? 3,
@@ -167,7 +216,12 @@ export class AgentService {
         // Sub-agents
         agentRegistry: this.agentRegistry,
 
-        // Plugins — pass a minimal no-op plugin manager that satisfies the kernel's fireHook contract
+        // Sandbox
+        sandbox: {
+          mode: settings?.sandboxMode ?? 'host',
+        },
+
+        // Plugins
         pluginManager: {
           async register() {},
           async activate() {},
@@ -180,7 +234,7 @@ export class AgentService {
       };
 
       const kernel = new AgentKernel(kernelConfig);
-      this.kernels.set(cacheKey, { kernel, lastAccess: Date.now() });
+      this.kernels.set(fullCacheKey, { kernel, lastAccess: Date.now() });
       this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${tools.length} workspace=${workspaceRoot}`);
       return kernel;
     } catch (error) {
@@ -200,7 +254,7 @@ export class AgentService {
   }
 
   async runAgent(input: RunAgentInput): Promise<RunAgentResult> {
-    const { sessionId, prompt, model, provider } = input;
+    const { sessionId, prompt, model, provider, settings } = input;
     this.logger.log(`Running agent for session ${sessionId}, model=${model}, provider=${provider}`);
 
     if (!sessionId) {
@@ -225,7 +279,7 @@ export class AgentService {
       triggerType: 'http',
     });
 
-    const kernel = await this.getKernel(model, provider);
+    const kernel = await this.getKernel(model, provider, settings);
     const ctx = this.buildRequestContext(provider, model);
 
     try {
