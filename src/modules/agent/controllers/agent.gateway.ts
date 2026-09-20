@@ -11,6 +11,7 @@ import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
+import { AgentSettingsService, KernelSettings } from '../services/agent-settings.service';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { extractActualErrorMessage } from '@/shared/error-utils';
 import { SdkError, isSdkError } from '@vinhnt-sdk/schema';
@@ -56,6 +57,7 @@ export class AgentGateway
   constructor(
     private readonly agentService: AgentService,
     private readonly trackingService: AgentRunTrackingService,
+    private readonly settingsService: AgentSettingsService,
     private readonly sessionRepository: SessionRepository,
   ) {}
 
@@ -122,6 +124,7 @@ export class AgentGateway
       model?: string;
       provider?: string;
       workspaceId?: string;
+      settings?: Partial<KernelSettings>;
     },
   ) {
     const runStartedAt = Date.now();
@@ -129,8 +132,12 @@ export class AgentGateway
     let toolCallCount = 0;
     let runId: string | undefined;
 
+    // Merge request settings with saved settings
+    const savedSettings = this.settingsService.getSettings();
+    const mergedSettings = { ...savedSettings, ...data.settings };
+
     this.logger.log(
-      `Run requested | client=${client.id} session=${data.sessionId} model=${data.model ?? 'default'}`,
+      `Run requested | client=${client.id} session=${data.sessionId} model=${data.model ?? 'default'} temperature=${mergedSettings.temperature}`,
     );
 
     try {
@@ -151,7 +158,7 @@ export class AgentGateway
         return;
       }
 
-      const result = await this.agentService.runAgentStreaming(data);
+      const result = await this.agentService.runAgentStreaming({ ...data, settings: mergedSettings });
       runId = result.runId;
       const handle = result.handle;
 

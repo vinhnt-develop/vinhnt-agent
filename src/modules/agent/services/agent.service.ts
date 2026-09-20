@@ -25,12 +25,14 @@ import { AgentToolkit } from './agent-toolkit';
 import { AgentRunTrackingService } from './agent-run-tracking.service';
 import { AgentKnowledgeService } from '@/modules/knowledge/services/agent-knowledge.service';
 import { extractActualErrorMessage } from '@/shared/error-utils';
+import { KernelSettings } from './agent-settings.service';
 
 export interface RunAgentInput {
   sessionId: string;
   prompt: string;
   model?: string;
   provider?: string;
+  settings?: Partial<KernelSettings>;
 }
 
 export interface RunAgentResult {
@@ -90,7 +92,7 @@ export class AgentService {
     if (oldestKey) this.kernels.delete(oldestKey);
   }
 
-  private async getKernel(modelId?: string, providerName?: string): Promise<any> {
+  private async getKernel(modelId?: string, providerName?: string, settings?: Partial<KernelSettings>): Promise<any> {
     const cacheKey = this.getKernelCacheKey(providerName, modelId);
     const cached = this.kernels.get(cacheKey);
     if (cached) {
@@ -130,21 +132,26 @@ export class AgentService {
         eventBus: this.eventBus,
         tools: allTools.length > 0 ? (allTools as any) : undefined,
 
-        // Limits
-        maxSteps: this.configService.get<number>('agent.maxSteps', 30),
-        maxTokens: this.configService.get<number>('agent.maxTokens', 4096),
-        stepTimeout: this.configService.get<number>('agent.stepTimeout', 120_000),
+        // Limits — use settings if provided, otherwise fall back to env/config
+        maxSteps: settings?.maxSteps ?? this.configService.get<number>('agent.maxSteps', 30),
+        maxTokens: settings?.maxTokens ?? this.configService.get<number>('agent.maxTokens', 4096),
+        stepTimeout: settings?.stepTimeout ?? this.configService.get<number>('agent.stepTimeout', 120_000),
+        maxToolCallsPerStep: settings?.maxToolCallsPerStep ?? 10,
+        maxConcurrentToolCalls: settings?.maxConcurrentToolCalls ?? 5,
 
         // Resilience — wire from AgentToolkit
         circuitBreaker: this.agentToolkit.getCircuitBreaker() as any,
-        doomLoopThreshold: this.configService.get<number>('agent.doomLoopThreshold', 3),
+        doomLoopThreshold: settings?.doomLoopThreshold ?? this.configService.get<number>('agent.doomLoopThreshold', 3),
 
         // Self-correction
-        selfCorrectOnFailure: true,
-        maxSelfCorrectAttempts: 3,
+        selfCorrectOnFailure: settings?.selfCorrectOnFailure ?? true,
+        maxSelfCorrectAttempts: settings?.maxSelfCorrectAttempts ?? 3,
 
         // Thinking
-        thinkingBudget: this.configService.get<number>('agent.thinkingBudget', 1024),
+        thinkingBudget: settings?.thinkingBudget ?? this.configService.get<number>('agent.thinkingBudget', 1024),
+
+        // Sub-agents
+        maxSubAgentDepth: settings?.maxSubAgentDepth ?? 3,
 
         // Workspace
         workspaceRoot,
@@ -324,11 +331,11 @@ export class AgentService {
   }
 
   async runAgentStreaming(input: RunAgentInput): Promise<{ handle: any; runId: string }> {
-    const { sessionId, prompt, model, provider } = input;
+    const { sessionId, prompt, model, provider, settings } = input;
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
     try {
-      const kernel = await this.getKernel(model, provider);
+      const kernel = await this.getKernel(model, provider, settings);
       const ctx = this.buildRequestContext(provider, model);
       const handle = kernel.createRunHandle(prompt, ctx, sessionId);
 
