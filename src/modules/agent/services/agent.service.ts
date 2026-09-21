@@ -33,6 +33,7 @@ export interface RunAgentInput {
   model?: string;
   provider?: string;
   settings?: Partial<KernelSettings>;
+  projectPath?: string;
 }
 
 export interface RunAgentResult {
@@ -243,18 +244,22 @@ export class AgentService {
     }
   }
 
-  private buildRequestContext(provider?: string, model?: string) {
+  private buildRequestContext(provider?: string, model?: string, workspaceRoot?: string) {
     return {
       requestId: crypto.randomUUID() as RequestId,
       traceId: crypto.randomUUID() as TraceId,
       actorId: 'local-user',
       tenantId: 'local',
-      ...(provider || model ? { overrides: { provider, model } } : {}),
+      overrides: {
+        ...(provider ? { provider } : {}),
+        ...(model ? { model } : {}),
+        ...(workspaceRoot ? { workspaceRoot } : {}),
+      },
     };
   }
 
   async runAgent(input: RunAgentInput): Promise<RunAgentResult> {
-    const { sessionId, prompt, model, provider, settings } = input;
+    const { sessionId, prompt, model, provider, settings, projectPath } = input;
     this.logger.log(`Running agent for session ${sessionId}, model=${model}, provider=${provider}`);
 
     if (!sessionId) {
@@ -280,7 +285,7 @@ export class AgentService {
     });
 
     const kernel = await this.getKernel(model, provider, settings);
-    const ctx = this.buildRequestContext(provider, model);
+    const ctx = this.buildRequestContext(provider, model, projectPath);
 
     try {
       this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
@@ -385,12 +390,12 @@ export class AgentService {
   }
 
   async runAgentStreaming(input: RunAgentInput): Promise<{ handle: any; runId: string }> {
-    const { sessionId, prompt, model, provider, settings } = input;
+    const { sessionId, prompt, model, provider, settings, projectPath } = input;
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
     try {
       const kernel = await this.getKernel(model, provider, settings);
-      const ctx = this.buildRequestContext(provider, model);
+      const ctx = this.buildRequestContext(provider, model, projectPath);
       const handle = kernel.createRunHandle(prompt, ctx, sessionId);
 
       const runId = handle.runId as string;

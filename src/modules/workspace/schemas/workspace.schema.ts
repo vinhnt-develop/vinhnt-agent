@@ -5,6 +5,7 @@ export const workspaces = sqliteTable('workspaces', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   description: text('description'),
+  path: text('path'),
   ownerId: text('owner_id').notNull(),
   isActive: integer('is_active', { mode: 'boolean' }).default(false),
   createdAt: text('created_at').default(sql`datetime('now')`),

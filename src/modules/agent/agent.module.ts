@@ -11,6 +11,8 @@ import { AgentRunRepository } from './repositories/agent-run.repository';
 import { ToolExecutionRepository } from './repositories/tool-execution.repository';
 import { AgentGateway } from './controllers/agent.gateway';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
+import { ProjectRepository } from '@/modules/project/repositories/project.repository';
+import { WorkspaceRepository } from '@/modules/workspace/repositories/workspace.repository';
 
 @Module({
   imports: [StorageModule, ModelModule, DatabaseModule, McpServersModule, KnowledgeModule],
@@ -24,6 +26,8 @@ import { SessionRepository } from '@/modules/session/repositories/session.reposi
     AgentRunRepository,
     ToolExecutionRepository,
     SessionRepository,
+    ProjectRepository,
+    WorkspaceRepository,
   ],
   exports: [AgentService, AgentToolkit, AgentSettingsService, AgentRunTrackingService],
 })

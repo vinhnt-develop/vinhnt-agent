@@ -46,8 +46,8 @@ importers:
         specifier: ^0.4.2
         version: 0.4.2
       '@vinhnt-sdk/core':
-        specifier: ^0.7.0
-        version: 0.7.0
+        specifier: ^0.8.0
+        version: 0.8.0
       '@vinhnt-sdk/event':
         specifier: 0.1.3
         version: 0.1.3
@@ -1818,8 +1818,8 @@ packages:
     resolution: {integrity: sha512-PtVgZJAg5FILoBtogW008D0TFRnVp6VxWGxgJON/a+XlKMg6cifdjIbCs4NqTTEeISyv3UK6LxuflyaWpDKwow==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/core@0.7.0':
-    resolution: {integrity: sha512-8fesZqFjRM/C9UQKQflhs+KdkVq/A1hv9M/HZi+WsJ4FHNDVVg/s9NKFL8ZL7YJOqICuOwUOmqYZLwZJvIbLLg==}
+  '@vinhnt-sdk/core@0.8.0':
+    resolution: {integrity: sha512-USjHumsiUEu+O4vDMF+GU7ra7qDB2KmNOMnXgFFgEaGyGBPTjRj7RFhh+x88wdh5Tx/AhKyAM6ljkxIKIECVrQ==}
     engines: {node: '>=20'}
 
   '@vinhnt-sdk/event@0.1.3':
@@ -5743,7 +5743,7 @@ snapshots:
       '@vinhnt-sdk/workflow': 0.4.2
       zod: 4.6.1
 
-  '@vinhnt-sdk/core@0.7.0':
+  '@vinhnt-sdk/core@0.8.0':
     dependencies:
       '@vinhnt-sdk/event': 0.1.3
       '@vinhnt-sdk/guard': 0.4.2

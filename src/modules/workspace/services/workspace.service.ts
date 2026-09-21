@@ -6,7 +6,7 @@ import { PaginationDto } from '@/common/dto/pagination.dto';
 export class WorkspaceService {
   constructor(private readonly workspaceRepository: WorkspaceRepository) {}
 
-  async create(data: { name: string; description?: string; ownerId: string }) {
+  async create(data: { name: string; description?: string; path?: string; ownerId: string }) {
     const existing = await this.workspaceRepository.findByName(data.name, data.ownerId);
     if (existing) {
       throw new ConflictException('Workspace name already exists');
@@ -33,7 +33,7 @@ export class WorkspaceService {
     return workspace;
   }
 
-  async update(id: string, data: { name?: string; description?: string }, userId: string) {
+  async update(id: string, data: { name?: string; description?: string; path?: string }, userId: string) {
     const workspace = await this.findById(id, userId);
     if (data.name && data.name !== workspace.name) {
       const existing = await this.workspaceRepository.findByName(data.name, userId);

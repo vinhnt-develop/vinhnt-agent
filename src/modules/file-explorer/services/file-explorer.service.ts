@@ -26,7 +26,10 @@ export class FileExplorerService {
     rootDir: string,
     requestedPath: string = '.',
   ): Promise<FileTreeNode[]> {
-    const safePath = this.resolveSafePath(rootDir, requestedPath);
+    // Support absolute paths directly (for folder picker)
+    const safePath = path.isAbsolute(requestedPath)
+      ? requestedPath
+      : this.resolveSafePath(rootDir, requestedPath);
 
     const stat = await fs.stat(safePath);
     if (!stat.isDirectory()) {
@@ -42,7 +45,9 @@ export class FileExplorerService {
       if (entry.name.startsWith('.')) continue;
 
       const fullPath = path.join(safePath, entry.name);
-      const relativePath = path.relative(rootDir, fullPath);
+      const relativePath = path.isAbsolute(requestedPath)
+        ? fullPath
+        : path.relative(rootDir, fullPath);
 
       try {
         const entryStat = await fs.stat(fullPath);

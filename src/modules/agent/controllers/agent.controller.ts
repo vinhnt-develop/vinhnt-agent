@@ -19,6 +19,8 @@ import type { ApiResponse } from '@/common/interfaces';
 import { AgentService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
+import { ProjectRepository } from '@/modules/project/repositories/project.repository';
+import { WorkspaceRepository } from '@/modules/workspace/repositories/workspace.repository';
 
 @ApiTags('Agent')
 @ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto)
@@ -27,7 +29,33 @@ export class AgentController {
   constructor(
     private readonly agentService: AgentService,
     private readonly sessionRepository: SessionRepository,
+    private readonly projectRepository: ProjectRepository,
+    private readonly workspaceRepository: WorkspaceRepository,
   ) {}
+
+  private async resolveProjectPath(sessionId: string): Promise<string | undefined> {
+    try {
+      const session = await this.sessionRepository.findById(sessionId);
+      if (!session?.projectId) return undefined;
+
+      const project = await this.projectRepository.findById(session.projectId);
+      if (!project) return undefined;
+
+      if (project.path) return project.path;
+
+      if (project.workspaceId) {
+        const workspace = await this.workspaceRepository.findById(project.workspaceId);
+        if (workspace?.path) {
+          const path = await import('node:path');
+          return path.default.join(workspace.path, project.name);
+        }
+      }
+
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
 
   @Post('run')
   @HttpCode(HttpStatus.OK)
@@ -42,11 +70,14 @@ export class AgentController {
       throw new NotFoundException('Session not found');
     }
 
+    const projectPath = await this.resolveProjectPath(dto.sessionId);
+
     const result = await this.agentService.runAgent({
       sessionId: dto.sessionId,
       prompt: dto.prompt,
       model: dto.model,
       provider: dto.provider,
+      projectPath,
     });
     return formatResponse.single(
       RunAgentResponseDto,

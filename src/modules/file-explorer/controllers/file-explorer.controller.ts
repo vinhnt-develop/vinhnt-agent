@@ -40,7 +40,7 @@ export class FileExplorerController {
     name: 'path',
     required: false,
     type: 'string',
-    description: 'Relative path from workspace root',
+    description: 'Absolute path or relative path from workspace root',
   })
   @ApiDataResponse(FileTreeNodeResponseDto, { isArray: true })
   async getTree(
