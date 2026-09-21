@@ -7,6 +7,7 @@ import type {
   ModelStreamEvent,
   ModelPricing,
   ModelCapabilities,
+  ModelId,
 } from '@vinhnt-sdk/schema';
 import {
   OpenAICompatibleProvider,
@@ -248,7 +249,7 @@ export interface DiscoveredModel {
 
 class ProviderAdapter implements ModelProvider {
   readonly provider: string;
-  readonly model: string;
+  readonly model: ModelId;
   readonly contextLimit: number | undefined;
   readonly pricing: ModelPricing | undefined;
   readonly capabilities: ModelCapabilities;
@@ -259,7 +260,7 @@ class ProviderAdapter implements ModelProvider {
     pricing?: ModelPricing,
   ) {
     this.provider = providerName;
-    this.model = inner.model;
+    this.model = inner.model as ModelId;
     this.contextLimit = inner.contextLimit;
     this.pricing = pricing || inner.pricing;
     this.capabilities = inner.capabilities;

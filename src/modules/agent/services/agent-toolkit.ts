@@ -26,15 +26,13 @@ import {
   CircuitBreaker,
   LoopDetector,
   withToolTimeout,
-} from '@vinhnt-sdk/guard';
-import { Timeline, CostMeter } from '@vinhnt-sdk/trace';
-import {
   defaultSecretRedactor,
   sanitizeForLLM,
   detectInjectionPatterns,
   redactSecrets,
   sanitizeEnv,
-} from '@vinhnt-sdk/security';
+} from '@vinhnt-sdk/guard';
+import { Timeline, CostMeter } from '@vinhnt-sdk/trace';
 import {
   createHostSandbox,
   type SandboxConfig,
@@ -268,6 +266,7 @@ export class AgentToolkit implements OnModuleInit {
     resource: string,
     permissionRules?: Array<{
       action: string;
+      resource: string;
       effect: string;
       target?: string;
     }>,
