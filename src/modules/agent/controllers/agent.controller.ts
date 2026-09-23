@@ -16,7 +16,7 @@ import {
 import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
-import { AgentService } from '../services';
+import { AgentService, AgentSettingsService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { ProjectRepository } from '@/modules/project/repositories/project.repository';
@@ -28,6 +28,7 @@ import { WorkspaceRepository } from '@/modules/workspace/repositories/workspace.
 export class AgentController {
   constructor(
     private readonly agentService: AgentService,
+    private readonly settingsService: AgentSettingsService,
     private readonly sessionRepository: SessionRepository,
     private readonly projectRepository: ProjectRepository,
     private readonly workspaceRepository: WorkspaceRepository,
@@ -72,6 +73,9 @@ export class AgentController {
 
     const projectPath = await this.resolveProjectPath(dto.sessionId);
 
+    // Same settings source as WS gateway (saved kernel settings).
+    const settings = this.settingsService.getSettings();
+
     const result = await this.agentService.runAgent({
       sessionId: dto.sessionId,
       prompt: dto.prompt,
@@ -79,6 +83,7 @@ export class AgentController {
       provider: dto.provider,
       projectPath,
       selection: dto.selection,
+      settings,
     });
     return formatResponse.single(
       RunAgentResponseDto,

@@ -244,7 +244,7 @@ export class AgentToolkit implements OnModuleInit {
           type: 'object',
           properties: {},
         }) as any,
-        risk: 'moderate' as const,
+        risk: 'write' as const,
         metadata: { source: 'custom' },
         execute: handler,
       });

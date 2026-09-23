@@ -401,7 +401,13 @@ export class AgentGateway
           type.startsWith('run.') ||
           type.startsWith('step.') ||
           type.startsWith('tool.') ||
-          type.startsWith('thinking.')
+          type.startsWith('thinking.') ||
+          type.startsWith('llm.') ||
+          type.startsWith('permission.') ||
+          type === 'token.counted' ||
+          type === 'model.cost' ||
+          type === 'agent.handoff' ||
+          type === 'context.compressed'
         ) {
           return { type, data, ...base };
         }

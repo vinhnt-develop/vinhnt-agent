@@ -215,7 +215,7 @@ export class TrajectoryService {
         .select()
         .from(runEvents)
         .where(sql`${runEvents.runId} IN ${runIds}`)
-        .orderBy(sql`${runEvents.occurredAt} ASC`)
+        .orderBy(sql`${runEvents.sequence} ASC, ${runEvents.occurredAt} ASC`)
         .all() as TrajectoryEvent[];
     }
 

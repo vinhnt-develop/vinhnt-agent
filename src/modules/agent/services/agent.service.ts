@@ -130,22 +130,32 @@ export class AgentService {
 
   private getSettingsHash(settings?: Partial<KernelSettings>): string {
     if (!settings) return '';
-    // Only hash the fields that affect kernel behavior
-    const relevant = [
-      settings.maxSteps,
-      settings.maxTokens,
-      settings.stepTimeout,
-      settings.thinkingBudget,
-      settings.maxToolCallsPerStep,
-      settings.maxConcurrentToolCalls,
-      settings.selfCorrectOnFailure,
-      settings.maxSelfCorrectAttempts,
-      settings.doomLoopThreshold,
-      settings.compactionThreshold,
-      settings.maxSubAgentDepth,
-      settings.toolChoice,
-      settings.parallelToolCalls,
-    ];
+    // Every field that affects ModelCaller / system prompt / kernel behavior.
+    // Missing a field here reuses a stale kernel and lies about the request.
+    const relevant = {
+      temperature: settings.temperature,
+      topP: settings.topP,
+      maxTokens: settings.maxTokens,
+      frequencyPenalty: settings.frequencyPenalty,
+      presencePenalty: settings.presencePenalty,
+      maxSteps: settings.maxSteps,
+      thinkingBudget: settings.thinkingBudget,
+      stepTimeout: settings.stepTimeout,
+      toolChoice: settings.toolChoice,
+      parallelToolCalls: settings.parallelToolCalls,
+      maxToolCallsPerStep: settings.maxToolCallsPerStep,
+      maxConcurrentToolCalls: settings.maxConcurrentToolCalls,
+      selfCorrectOnFailure: settings.selfCorrectOnFailure,
+      maxSelfCorrectAttempts: settings.maxSelfCorrectAttempts,
+      compactionThreshold: settings.compactionThreshold,
+      doomLoopThreshold: settings.doomLoopThreshold,
+      maxSubAgentDepth: settings.maxSubAgentDepth,
+      maxRetries: settings.maxRetries,
+      backoffMs: settings.backoffMs,
+      maxBackoffMs: settings.maxBackoffMs,
+      sandboxMode: settings.sandboxMode,
+      systemPrompt: settings.systemPrompt,
+    };
     return JSON.stringify(relevant);
   }
 
@@ -290,7 +300,7 @@ export class AgentService {
           // Priority 5: Tool usage guide (auto-generated from registered tools)
           registry.register(createToolContextSource(() =>
             allTools.map((t: any) => ({
-              name: t.name,
+              name: t.name ?? t.id,
               description: t.description || '',
               risk: t.risk,
             })),
@@ -351,10 +361,15 @@ export class AgentService {
       this.logger.warn(`Session ${sessionId} has no messages - session may not exist in DB`);
     }
 
-    const runId = crypto.randomUUID();
     const runStartedAt = Date.now();
-    this.agentToolkit.recordTimelineEvent(runId, 'run.started', { sessionId });
+    const kernel = await this.getKernel(model, provider, settings);
+    const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
 
+    // runId MUST equal handle.runId so agent_runs joins run_events in trajectory.
+    const handle = kernel.createRunHandle(prompt, ctx, sessionId);
+    const runId = handle.runId as string;
+
+    this.agentToolkit.recordTimelineEvent(runId, 'run.started', { sessionId });
     this.trackingService.startRun({
       runId,
       sessionId,
@@ -363,12 +378,8 @@ export class AgentService {
       triggerType: 'http',
     });
 
-    const kernel = await this.getKernel(model, provider, settings);
-    const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
-
     try {
       this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
-      const handle = kernel.createRunHandle(prompt, ctx, sessionId);
 
       // Drain handle.events() so tool.invoked/completed/failed are tracked
       // into tool_executions (same as WS gateway path).
