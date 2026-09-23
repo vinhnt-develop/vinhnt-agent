@@ -99,14 +99,15 @@ export class AgentController {
   @Get('tools')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List available agent tools' })
-  async getTools(): Promise<ApiResponse<Array<{ id: string; name: string; description: string; risk: string }>>> {
+  async getTools(): Promise<ApiResponse<Array<{ id: string; name: string; description: string; risk: string; source: string }>>> {
     const toolkit = this.agentService.getAgentToolkit();
     const defs = toolkit.getToolsAsDefinitions();
     const tools = defs.map((t: any) => ({
       id: t.id || t.name,
-      name: t.name,
+      name: t.name || t.id,
       description: t.description || '',
       risk: t.risk || 'read-only',
+      source: (t.metadata?.source as string) || (String(t.id || '').startsWith('custom_') ? 'custom' : String(t.id || '').startsWith('mcp__') ? 'mcp' : 'system'),
     }));
     return {
       status: 'success',

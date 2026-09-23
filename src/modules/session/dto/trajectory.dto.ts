@@ -213,6 +213,8 @@ export class TrajectoryStepDto {
       description: string;
       parameters?: Record<string, unknown>;
       risk?: string;
+      source?: string;
+      metadata?: Record<string, unknown>;
     }>;
     selection?: {
       tools?: Array<{ id: string; name?: string; enabled?: boolean }>;

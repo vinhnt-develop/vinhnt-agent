@@ -66,6 +66,8 @@ export interface TrajectoryStep {
       description: string;
       parameters?: Record<string, unknown>;
       risk?: string;
+      source?: string;
+      metadata?: Record<string, unknown>;
     }>;
     selection?: {
       tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
@@ -472,7 +474,7 @@ export class TrajectoryService {
           systemPromptLength: requestEvent.data?.systemPromptLength as number | undefined,
           systemPrompt: requestEvent.data?.systemPrompt as string | undefined,
           messages: requestEvent.data?.messages as Array<{ role: string; content: string; toolCalls?: Array<{ id: string; name: string; arguments: string }>; toolCallId?: string }> | undefined,
-          tools: requestEvent.data?.tools as Array<{ name: string; description: string; parameters?: Record<string, unknown>; risk?: string }> | undefined,
+          tools: requestEvent.data?.tools as Array<{ name: string; description: string; parameters?: Record<string, unknown>; risk?: string; source?: string; metadata?: Record<string, unknown> }> | undefined,
           selection: requestEvent.data?.selection as { tools?: Array<{ id: string; name?: string; enabled?: boolean }>; knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>; plugins?: string[] } | undefined,
           agent: requestEvent.data?.agent as { id?: string; name?: string } | undefined,
         };

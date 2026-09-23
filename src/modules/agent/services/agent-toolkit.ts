@@ -120,18 +120,25 @@ export class AgentToolkit implements OnModuleInit {
     const root =
       workspaceRoot || this.configService.get<string>('agent.workspaceRoot', '.');
 
-    this.toolRegistry.register(createReadFileTool(root, this.fileReadTracker));
-    this.toolRegistry.register(createWriteFileTool(root, this.fileReadTracker));
-    this.toolRegistry.register(createEditFileTool(root, this.fileReadTracker));
-    this.toolRegistry.register(createListDirectoryTool(root));
-    this.toolRegistry.register(createGlobFilesTool(root));
-    this.toolRegistry.register(createGrepFilesTool(root));
+    const asSystem = (tool: ToolDefinition): ToolDefinition => ({
+      ...tool,
+      metadata: { ...tool.metadata, source: 'system' },
+    });
+
+    this.toolRegistry.register(asSystem(createReadFileTool(root, this.fileReadTracker)));
+    this.toolRegistry.register(asSystem(createWriteFileTool(root, this.fileReadTracker)));
+    this.toolRegistry.register(asSystem(createEditFileTool(root, this.fileReadTracker)));
+    this.toolRegistry.register(asSystem(createListDirectoryTool(root)));
+    this.toolRegistry.register(asSystem(createGlobFilesTool(root)));
+    this.toolRegistry.register(asSystem(createGrepFilesTool(root)));
     this.toolRegistry.register(
-      createShellTool({ workspaceRoot: root, defaultTimeoutMs: 30_000 }),
+      asSystem(
+        createShellTool({ workspaceRoot: root, defaultTimeoutMs: 30_000 }),
+      ),
     );
-    this.toolRegistry.register(createGitStatusTool(root));
-    this.toolRegistry.register(createGitDiffTool(root));
-    this.toolRegistry.register(createGitLogTool(root));
+    this.toolRegistry.register(asSystem(createGitStatusTool(root)));
+    this.toolRegistry.register(asSystem(createGitDiffTool(root)));
+    this.toolRegistry.register(asSystem(createGitLogTool(root)));
 
     this.logger.log(
       `Initialized ${this.toolRegistry.count()} built-in tools for root: ${root}`,
@@ -238,6 +245,7 @@ export class AgentToolkit implements OnModuleInit {
           properties: {},
         }) as any,
         risk: 'moderate' as const,
+        metadata: { source: 'custom' },
         execute: handler,
       });
     }
@@ -258,7 +266,22 @@ export class AgentToolkit implements OnModuleInit {
   }
 
   getToolsAsDefinitions(): ToolDefinition[] {
-    return this.toolRegistry.list() as ToolDefinition[];
+    return this.toolRegistry.list().map((t) => {
+      const tool = t as ToolDefinition;
+      const metaSource = tool.metadata?.source;
+      const source =
+        typeof metaSource === 'string' && metaSource
+          ? metaSource
+          : tool.id.startsWith('custom_')
+            ? 'custom'
+            : tool.id.startsWith('mcp__')
+              ? 'mcp'
+              : 'system';
+      return {
+        ...tool,
+        metadata: { ...tool.metadata, source },
+      };
+    });
   }
 
   checkPermission(
