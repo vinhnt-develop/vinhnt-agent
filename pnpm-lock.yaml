@@ -57,8 +57,8 @@ importers:
         specifier: ^0.4.3
         version: 0.4.3
       '@vinhnt-sdk/mcp':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: 0.4.5
+        version: 0.4.5
       '@vinhnt-sdk/permission':
         specifier: ^0.5.0
         version: 0.5.0
@@ -1866,8 +1866,8 @@ packages:
     resolution: {integrity: sha512-pwD/7xq9AM0jzGibsZiCWgK+nNSheHkFDSvhQm+AkfyjCa9ox08/aVP0b96UH6kiH8redxoC9RGCfvHq6GfOlg==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/mcp@0.4.4':
-    resolution: {integrity: sha512-/h+SYITSoM0gqvZfq9dXWzqqknbS69iKOPjXTiImJ26y60UPL+H21LFofixd2Wud7O6Mrr3Mm4jDEi7B1d9yqg==}
+  '@vinhnt-sdk/mcp@0.4.5':
+    resolution: {integrity: sha512-p0eqhlFNIG3VxTvqdzZoK5DYhLnvIhfLMjgRgTPXB9lLW+y1yR9+x5s+CKTDXPGoSwyZyYdbJX3y4gdBU/RnXg==}
     engines: {node: '>=20'}
 
   '@vinhnt-sdk/permission@0.4.2':
@@ -5798,7 +5798,7 @@ snapshots:
 
   '@vinhnt-sdk/guard@0.4.3':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.8
+      '@vinhnt-sdk/schema': 0.5.9
 
   '@vinhnt-sdk/guard@0.4.4':
     dependencies:
@@ -5839,9 +5839,9 @@ snapshots:
       '@vinhnt-sdk/tools': 0.4.7
       zod: 4.6.5
 
-  '@vinhnt-sdk/mcp@0.4.4':
+  '@vinhnt-sdk/mcp@0.4.5':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.7
+      '@vinhnt-sdk/schema': 0.5.9
       '@vinhnt-sdk/tools': 0.4.7
 
   '@vinhnt-sdk/permission@0.4.2':
