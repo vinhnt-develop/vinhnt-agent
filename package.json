@@ -44,7 +44,7 @@
     "@vinhnt-sdk/plugin": "^0.4.2",
     "@vinhnt-sdk/provider-openai-compatible": "^0.4.2",
     "@vinhnt-sdk/sandbox": "^0.4.2",
-    "@vinhnt-sdk/schema": "^0.5.4",
+    "@vinhnt-sdk/schema": "^0.5.5",
     "@vinhnt-sdk/security": "^0.4.2",
     "@vinhnt-sdk/session": "^0.4.2",
     "@vinhnt-sdk/step-executor": "^0.4.6",
