@@ -87,8 +87,8 @@ importers:
         specifier: 0.4.7
         version: 0.4.7
       '@vinhnt-sdk/trace':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.4.3
+        version: 0.4.3
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3
@@ -1926,8 +1926,8 @@ packages:
     resolution: {integrity: sha512-NYm3aPgpTSN5b+ZlBRx4Ph5tyDzCwDEPvg88+q+zhVK9bSLKdNoaoZRM2x39ptH5koChqyCb9jWJ5HDcjNa/UQ==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/trace@0.4.2':
-    resolution: {integrity: sha512-AP+AoUDnoB0HcbaMSl+uZHHLG0gZc54ZisawiA30DD7Y8FRXtQsM3ahEM5eHovQcDXGsn5q9obHSHnr0xtGF9w==}
+  '@vinhnt-sdk/trace@0.4.3':
+    resolution: {integrity: sha512-WjoS8Qf5d0NgIdWEUTgYB/sTy+poYvoGiguqeVFxILG6xnfkPDvcAsefnyM07n+pZae+lidyEwv9TSi97ruUXQ==}
     engines: {node: '>=20'}
 
   '@vinhnt-sdk/workflow@0.4.2':
@@ -5919,9 +5919,9 @@ snapshots:
       '@vinhnt-sdk/schema': 0.5.7
       zod: 4.6.5
 
-  '@vinhnt-sdk/trace@0.4.2':
+  '@vinhnt-sdk/trace@0.4.3':
     dependencies:
-      '@vinhnt-sdk/schema': 0.4.2
+      '@vinhnt-sdk/schema': 0.5.9
 
   '@vinhnt-sdk/workflow@0.4.2':
     dependencies:

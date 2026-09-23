@@ -28,6 +28,6 @@ minimumReleaseAgeExclude:
   - '@vinhnt-sdk/lsp@0.4.3'
   - '@vinhnt-sdk/plugin@0.4.2'
   - '@vinhnt-sdk/sandbox@0.4.2'
-  - '@vinhnt-sdk/trace@0.4.2'
+  - '@vinhnt-sdk/trace@0.4.2 || 0.4.3'
   - '@vinhnt-sdk/workflow@0.4.2'
   - '@vinhnt-sdk/event@0.4.3'
