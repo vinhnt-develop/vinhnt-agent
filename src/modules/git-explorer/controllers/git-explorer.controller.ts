@@ -5,10 +5,10 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   ApiTags,
   ApiOperation,
+  ApiQuery,
   ApiExtraModels,
 } from '@nestjs/swagger';
 import { ApiDataResponse } from '@/common/decorators';
@@ -21,6 +21,7 @@ import {
   GitDiffResponseDto,
 } from '../dto';
 import { GitDiffQueryDto, GitLogQueryDto } from '../dto';
+import { ProjectPathService } from '@/shared/project-path.service';
 
 @ApiTags('Git Explorer')
 @ApiExtraModels(GitDiffQueryDto, GitLogQueryDto, GitStatusFileResponseDto, GitLogEntryResponseDto, GitDiffResponseDto)
@@ -28,15 +29,23 @@ import { GitDiffQueryDto, GitLogQueryDto } from '../dto';
 export class GitExplorerController {
   constructor(
     private readonly gitExplorerService: GitExplorerService,
-    private readonly configService: ConfigService,
+    private readonly projectPathService: ProjectPathService,
   ) {}
 
   @Get('status')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get git status of changed files' })
+  @ApiQuery({
+    name: 'sessionId',
+    required: false,
+    type: 'string',
+    description: 'Optional session to resolve project path',
+  })
   @ApiDataResponse(GitStatusFileResponseDto, { isArray: true })
-  async getStatus(): Promise<ApiResponse<GitStatusFileResponseDto[]>> {
-    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
+  async getStatus(
+    @Query('sessionId') sessionId?: string,
+  ): Promise<ApiResponse<GitStatusFileResponseDto[]>> {
+    const rootDir = await this.projectPathService.resolveOrFallback(sessionId);
     const files = await this.gitExplorerService.getStatus(rootDir);
 
     return formatResponse.array(
@@ -52,8 +61,9 @@ export class GitExplorerController {
   @ApiDataResponse(GitDiffResponseDto)
   async getDiff(
     @Query() query: GitDiffQueryDto,
+    @Query('sessionId') sessionId?: string,
   ): Promise<ApiResponse<GitDiffResponseDto>> {
-    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
+    const rootDir = await this.projectPathService.resolveOrFallback(sessionId);
     const diff = await this.gitExplorerService.getDiff(rootDir, query.path);
 
     return formatResponse.single(GitDiffResponseDto, { diff }, 'Git diff retrieved successfully.');
@@ -65,8 +75,9 @@ export class GitExplorerController {
   @ApiDataResponse(GitDiffResponseDto)
   async getDiffStaged(
     @Query() query: GitDiffQueryDto,
+    @Query('sessionId') sessionId?: string,
   ): Promise<ApiResponse<GitDiffResponseDto>> {
-    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
+    const rootDir = await this.projectPathService.resolveOrFallback(sessionId);
     const diff = await this.gitExplorerService.getDiffStaged(
       rootDir,
       query.path,
@@ -85,8 +96,9 @@ export class GitExplorerController {
   @ApiDataResponse(GitLogEntryResponseDto, { isArray: true })
   async getLog(
     @Query() query: GitLogQueryDto,
+    @Query('sessionId') sessionId?: string,
   ): Promise<ApiResponse<GitLogEntryResponseDto[]>> {
-    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
+    const rootDir = await this.projectPathService.resolveOrFallback(sessionId);
     const entries = await this.gitExplorerService.getLog(
       rootDir,
       query.limit || 20,

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   CUSTOM_TOOLS_CONFIG,
@@ -70,6 +70,17 @@ import {
 } from '@vinhnt-sdk/lsp';
 import { McpServerService } from '@/modules/mcp-servers/services/mcp-server.service';
 
+/** Structural PluginManager for kernel wiring (matches @vinhnt-sdk/core PluginManager). */
+export interface PluginManagerLike {
+  register(plugin: Plugin): Promise<void>;
+  activate(id: string): Promise<void>;
+  deactivate(id: string): Promise<void>;
+  list(): readonly Plugin[];
+  get(id: string): Plugin | undefined;
+  getActivePlugins(): readonly Plugin[];
+  fireHook(name: string, data: unknown): Promise<unknown>;
+}
+
 export interface AgentToolkitConfig {
   workspaceRoot?: string;
   provider?: string;
@@ -77,7 +88,7 @@ export interface AgentToolkitConfig {
 }
 
 @Injectable()
-export class AgentToolkit implements OnModuleInit {
+export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentToolkit.name);
   private readonly toolRegistry = new ToolRegistry();
   private readonly approvalStore: ApprovalStore = new InMemoryApprovalStore();
@@ -100,6 +111,8 @@ export class AgentToolkit implements OnModuleInit {
   private readonly lspPool = new LspPool();
   private readonly lspServerRegistry = new LspServerRegistry(BUILTIN_SERVERS);
   private readonly mcpConnections = new Map<string, any>();
+  private pluginManager?: PluginManagerLike;
+  private lspToolsRegistered = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -126,6 +139,15 @@ export class AgentToolkit implements OnModuleInit {
     } catch (error) {
       this.logger.warn('Failed to connect MCP servers on startup', error);
     }
+    try {
+      await this.initializeLspPool();
+    } catch (error) {
+      this.logger.warn('LSP pool unavailable (optional) — skipping', error);
+    }
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    await this.shutdown();
   }
 
   /** Load active custom tools from JsonConfigStore into the registry. */
@@ -457,6 +479,15 @@ export class AgentToolkit implements OnModuleInit {
     return this.pluginRegistry;
   }
 
+  /** Real PluginManager for kernel wiring (fireHook → registered plugins). */
+  setPluginManager(pm: PluginManagerLike | undefined): void {
+    this.pluginManager = pm;
+  }
+
+  getPluginManager(): PluginManagerLike | undefined {
+    return this.pluginManager;
+  }
+
   getMcpClient() {
     return this.mcpClient;
   }
@@ -495,7 +526,17 @@ export class AgentToolkit implements OnModuleInit {
 
   async registerPlugin(plugin: Plugin): Promise<void> {
     this.pluginRegistry.register(plugin);
-    if (plugin.activate) {
+    if (this.pluginManager) {
+      try {
+        await this.pluginManager.register(plugin);
+        await this.pluginManager.activate(plugin.manifest.id);
+      } catch (error) {
+        this.logger.warn(
+          `PluginManager activate failed for ${plugin.manifest.id}`,
+          error,
+        );
+      }
+    } else if (plugin.activate) {
       await plugin.activate({
         toolRegistry: this.toolRegistry,
         approvalStore: this.approvalStore,
@@ -507,7 +548,13 @@ export class AgentToolkit implements OnModuleInit {
 
   async unregisterPlugin(id: string): Promise<void> {
     const plugin = this.pluginRegistry.get(id);
-    if (plugin?.deactivate) {
+    if (this.pluginManager?.get(id)) {
+      try {
+        await this.pluginManager.deactivate(id);
+      } catch (error) {
+        this.logger.warn(`PluginManager deactivate failed for ${id}`, error);
+      }
+    } else if (plugin?.deactivate) {
       await plugin.deactivate();
     }
     this.pluginRegistry.unregister(id);
@@ -516,9 +563,24 @@ export class AgentToolkit implements OnModuleInit {
 
   async initializeLspPool(workspaceRoot?: string): Promise<void> {
     const root =
-      workspaceRoot || this.configService.get<string>('WORKSPACE_ROOT', '.');
+      workspaceRoot ||
+      this.configService.get<string>('agent.workspaceRoot', '.');
     this.lspPool.setActiveRoots([root]);
-    this.logger.log(`LSP pool initialized for root: ${root}`);
+    if (!this.lspToolsRegistered) {
+      const lspTools = this.getLspTools();
+      for (const tool of lspTools) {
+        this.toolRegistry.register({
+          ...tool,
+          metadata: { ...tool.metadata, source: 'system' },
+        });
+      }
+      this.lspToolsRegistered = true;
+      this.logger.log(
+        `LSP pool initialized for root: ${root}, ${lspTools.length} LSP tools registered`,
+      );
+    } else {
+      this.logger.log(`LSP pool root updated: ${root}`);
+    }
   }
 
   getLspTools(): ToolDefinition[] {
@@ -530,8 +592,16 @@ export class AgentToolkit implements OnModuleInit {
   }
 
   async shutdown(): Promise<void> {
-    await this.mcpClient.closeAll();
-    await this.lspPool.shutdownAll();
+    try {
+      await this.mcpClient.closeAll();
+    } catch (error) {
+      this.logger.warn('MCP closeAll failed during shutdown', error);
+    }
+    try {
+      await this.lspPool.shutdownAll();
+    } catch (error) {
+      this.logger.warn('LSP shutdownAll failed during shutdown', error);
+    }
     this.logger.log('AgentToolkit shut down');
   }
 }

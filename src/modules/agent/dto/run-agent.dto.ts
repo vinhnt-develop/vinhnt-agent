@@ -182,6 +182,17 @@ export class RunAgentDto {
   workspaceId?: string;
 
   @ApiPropertyOptional({
+    name: 'permissionMode',
+    type: 'string',
+    enum: ['ask', 'edit', 'full'],
+    description: 'Per-run permission mode from composer (ask | edit | full)',
+    example: 'ask',
+  })
+  @IsOptional()
+  @Expose({ name: 'permissionMode' })
+  permissionMode?: 'ask' | 'edit' | 'full';
+
+  @ApiPropertyOptional({
     name: 'selection',
     type: SelectionDto,
     description: 'User-selected resources for this run (tools, knowledge, plugins)',

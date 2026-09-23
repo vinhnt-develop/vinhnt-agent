@@ -12,10 +12,9 @@ import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
 import { AgentSettingsService, KernelSettings } from '../services/agent-settings.service';
-import { SessionRepository } from '@/modules/session/repositories/session.repository';
-import { ProjectRepository } from '@/modules/project/repositories/project.repository';
-import { WorkspaceRepository } from '@/modules/workspace/repositories/workspace.repository';
 import { extractActualErrorMessage } from '@/shared/error-utils';
+import { ProjectPathService } from '@/shared/project-path.service';
+import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { SdkError, isSdkError } from '@vinhnt-sdk/schema';
 
 /** Maximum age (ms) for runError entries before automatic cleanup. */
@@ -61,8 +60,7 @@ export class AgentGateway
     private readonly trackingService: AgentRunTrackingService,
     private readonly settingsService: AgentSettingsService,
     private readonly sessionRepository: SessionRepository,
-    private readonly projectRepository: ProjectRepository,
-    private readonly workspaceRepository: WorkspaceRepository,
+    private readonly projectPathService: ProjectPathService,
   ) {}
 
   onModuleInit() {
@@ -129,6 +127,7 @@ export class AgentGateway
       provider?: string;
       workspaceId?: string;
       settings?: Partial<KernelSettings>;
+      permissionMode?: 'ask' | 'edit' | 'full';
       selection?: {
         tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
         knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
@@ -170,7 +169,8 @@ export class AgentGateway
       const result = await this.agentService.runAgentStreaming({
         ...data,
         settings: mergedSettings,
-        projectPath: await this.resolveProjectPath(data.sessionId),
+        projectPath: await this.projectPathService.resolve(data.sessionId),
+        permissionMode: data.permissionMode,
       });
       runId = result.runId;
       const handle = result.handle;
@@ -412,32 +412,6 @@ export class AgentGateway
           return { type, data, ...base };
         }
         return null;
-    }
-  }
-
-  private async resolveProjectPath(sessionId: string): Promise<string | undefined> {
-    try {
-      const session = await this.sessionRepository.findById(sessionId);
-      if (!session?.projectId) return undefined;
-
-      const project = await this.projectRepository.findById(session.projectId);
-      if (!project) return undefined;
-
-      // 1. Project has explicit directory → use it
-      if (project.directory) return project.directory;
-
-      // 2. Workspace has directory → use workspace.directory + project.name
-      if (project.workspaceId) {
-        const workspace = await this.workspaceRepository.findById(project.workspaceId);
-        if (workspace?.directory) {
-          const path = await import('node:path');
-          return path.default.join(workspace.directory, project.name);
-        }
-      }
-
-      return undefined;
-    } catch {
-      return undefined;
     }
   }
 

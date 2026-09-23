@@ -14,6 +14,7 @@ import {
   createToolContextSource,
   createCustomSource,
 } from '@vinhnt-sdk/core';
+import { ToolProviderRegistry } from '@vinhnt-sdk/tools';
 import type { AgentId } from '@vinhnt-sdk/schema';
 import type {
   RequestId,
@@ -35,6 +36,60 @@ import { AgentKnowledgeService } from '@/modules/knowledge/services/agent-knowle
 import { extractActualErrorMessage } from '@/shared/error-utils';
 import { KernelSettings } from './agent-settings.service';
 
+/**
+ * Minimal PluginManager that fires hooks from the toolkit's plugin registry.
+ * Replaces the previous no-op stub so kernel/step-executor hooks actually run.
+ * Structural types only — dual @vinhnt-sdk/core versions in the tree make
+ * nominal Plugin typing unreliable here.
+ */
+class ToolkitPluginManager {
+  constructor(
+    private readonly registry: {
+      list(): Array<{ manifest?: { id?: string }; hooks?: Record<string, unknown> }>;
+      get(id: string): { manifest?: { id?: string }; hooks?: Record<string, unknown> } | undefined;
+    },
+  ) {}
+
+  async register(): Promise<void> { /* plugins live in toolkit registry */ }
+  async activate(): Promise<void> { /* activation handled by toolkit */ }
+  async deactivate(): Promise<void> { /* deactivation handled by toolkit */ }
+  list(): readonly unknown[] { return this.registry.list(); }
+  get(id: string): unknown { return this.registry.get(id); }
+  getActivePlugins(): readonly unknown[] { return this.registry.list(); }
+
+  async fireHook(name: string, data: unknown): Promise<unknown> {
+    let current = data;
+    let mutation: { modified: unknown } | null = null;
+    const mutationHooks = new Set([
+      'onToolInvoked', 'onToolCompleted', 'onPermissionAsk',
+      'onChatParams', 'onShellEnv', 'onBeforeModelCall',
+      'onAfterModelCall', 'onBeforeToolExecution', 'onAfterToolExecution',
+    ]);
+    for (const plugin of this.registry.list()) {
+      const hooks = plugin.hooks as Record<string, ((d: unknown) => Promise<unknown>) | undefined> | undefined;
+      const fn = hooks?.[name];
+      if (!fn) continue;
+      try {
+        const result = await fn(current);
+        if (
+          result !== null &&
+          result !== undefined &&
+          typeof result === 'object' &&
+          'modified' in (result as Record<string, unknown>)
+        ) {
+          mutation = result as { modified: unknown };
+          if (mutationHooks.has(name)) {
+            current = { ...(current as object), ...((result as { modified: Record<string, unknown> }).modified) };
+          }
+        }
+      } catch {
+        /* hook errors must not break the run */
+      }
+    }
+    return mutationHooks.has(name) ? mutation : undefined;
+  }
+}
+
 export interface RunAgentInput {
   sessionId: string;
   prompt: string;
@@ -42,6 +97,8 @@ export interface RunAgentInput {
   provider?: string;
   settings?: Partial<KernelSettings>;
   projectPath?: string;
+  /** Per-run permission mode from composer: ask | edit | full. */
+  permissionMode?: 'ask' | 'edit' | 'full';
   selection?: {
     tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
     knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
@@ -93,6 +150,7 @@ export class AgentService {
   private readonly eventBus = new InMemoryEventBus();
   private readonly tokenMeter = new TokenMeter();
   private readonly agentRegistry = new InMemoryAgentRegistry();
+  private readonly pluginManager: ToolkitPluginManager;
 
   constructor(
     private readonly sessionStore: SqliteSessionStore,
@@ -105,6 +163,18 @@ export class AgentService {
     private readonly knowledgeService: AgentKnowledgeService,
   ) {
     this.maxKernelCacheSize = this.configService.get<number>('agent.maxKernelCacheSize', 50);
+    this.pluginManager = new ToolkitPluginManager({
+      list: () =>
+        this.agentToolkit.getPluginRegistry().list() as Array<{
+          manifest?: { id?: string };
+          hooks?: Record<string, unknown>;
+        }>,
+      get: (id) =>
+        this.agentToolkit.getPluginRegistry().get(id) as
+          | { manifest?: { id?: string }; hooks?: Record<string, unknown> }
+          | undefined,
+    });
+    this.agentToolkit.setPluginManager(this.pluginManager as never);
   }
 
   getEventBus() { return this.eventBus; }
@@ -160,10 +230,16 @@ export class AgentService {
     return JSON.stringify(relevant);
   }
 
-  private async getKernel(modelId?: string, providerName?: string, settings?: Partial<KernelSettings>): Promise<any> {
+  private async getKernel(
+    modelId?: string,
+    providerName?: string,
+    settings?: Partial<KernelSettings>,
+    autoApprovalOverride?: boolean,
+  ): Promise<any> {
     const cacheKey = this.getKernelCacheKey(providerName, modelId);
     const settingsHash = this.getSettingsHash(settings);
-    const fullCacheKey = settingsHash ? `${cacheKey}|${settingsHash}` : cacheKey;
+    const autoApprovalKey = autoApprovalOverride !== undefined ? `|aa:${autoApprovalOverride}` : '';
+    const fullCacheKey = settingsHash ? `${cacheKey}|${settingsHash}${autoApprovalKey}` : `${cacheKey}${autoApprovalKey}`;
 
     const cached = this.kernels.get(fullCacheKey);
     if (cached) {
@@ -258,9 +334,10 @@ export class AgentService {
         // Permissions
         permissions: {
           approvalStore: this.agentToolkit.getApprovalStore(),
-          // Local agent: default auto-approve so write/shell don't dead-end
-          // waiting for an approval UI that doesn't exist yet (P0 fix).
-          autoApprovalEnabled: this.configService.get<boolean>('agent.autoApproval', true),
+          // Per-run permissionMode wins; else config default (local agent auto-approve).
+          autoApprovalEnabled:
+            autoApprovalOverride ??
+            this.configService.get<boolean>('agent.autoApproval', true),
           globalPermissionRules: this.configService.get<Record<string, string | Record<string, string>>>('agent.globalPermissionRules'),
           permissionRiskDefaults: this.configService.get<Record<string, string>>('agent.permissionRiskDefaults'),
         },
@@ -273,16 +350,8 @@ export class AgentService {
           mode: settings?.sandboxMode ?? 'host',
         },
 
-        // Plugins
-        pluginManager: {
-          async register() {},
-          async activate() {},
-          async deactivate() {},
-          list: () => [],
-          get: () => undefined,
-          getActivePlugins: () => [],
-          async fireHook() { return { ok: true } as any; },
-        } as any,
+        // Plugins — real manager (fireHook wired to registered plugins)
+        pluginManager: this.pluginManager as never,
 
         // System context — layered composition from SDK
         systemContext: (() => {
@@ -367,8 +436,28 @@ export class AgentService {
     }
 
     const runStartedAt = Date.now();
-    const kernel = await this.getKernel(model, provider, settings);
+    // Permission mode from composer: ask → require approval; edit/full → auto-approve.
+    // Falls back to global agent.autoApproval config when no mode is sent.
+    const autoApprovalFromMode =
+      input.permissionMode === 'ask'
+        ? false
+        : input.permissionMode === 'edit' || input.permissionMode === 'full'
+          ? true
+          : undefined;
+
+    const kernel = await this.getKernel(model, provider, settings, autoApprovalFromMode);
     const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
+
+    // Fallback: no projectPath → workspaceRoot with explicit warn (not silent monorepo root).
+    if (!projectPath) {
+      const ws = this.configService.get<string>('agent.workspaceRoot', '.');
+      this.logger.warn(
+        `No projectPath for session ${sessionId} — falling back to workspaceRoot=${ws}`,
+      );
+      if (ctx.overrides && !ctx.overrides.workspaceRoot) {
+        (ctx.overrides as Record<string, unknown>).workspaceRoot = ws;
+      }
+    }
 
     // runId MUST equal handle.runId so agent_runs joins run_events in trajectory.
     const handle = kernel.createRunHandle(prompt, ctx, sessionId);
@@ -550,8 +639,26 @@ export class AgentService {
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
     try {
-      const kernel = await this.getKernel(model, provider, settings);
+      const kernel = await this.getKernel(
+        model,
+        provider,
+        settings,
+        input.permissionMode === 'ask'
+          ? false
+          : input.permissionMode === 'edit' || input.permissionMode === 'full'
+            ? true
+            : undefined,
+      );
       const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
+      if (!projectPath) {
+        const ws = this.configService.get<string>('agent.workspaceRoot', '.');
+        this.logger.warn(
+          `No projectPath for streaming session ${sessionId} — falling back to workspaceRoot=${ws}`,
+        );
+        if (ctx.overrides && !ctx.overrides.workspaceRoot) {
+          (ctx.overrides as Record<string, unknown>).workspaceRoot = ws;
+        }
+      }
       const handle = kernel.createRunHandle(prompt, ctx, sessionId);
 
       const runId = handle.runId as string;

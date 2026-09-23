@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
 import {
   JsonConfigStore,
+  resolveApiKeyRef,
   type ProviderJsonConfig,
 } from '@/infrastructure/config/json-config-store';
 import { PROVIDERS_CONFIG } from '@/infrastructure/config/config.module';
@@ -9,9 +10,11 @@ import { PROVIDERS_CONFIG } from '@/infrastructure/config/config.module';
 export type ProviderConfigWithApiKey = ProviderJsonConfig & { hasApiKey: boolean };
 
 function enrichHasApiKey(config: ProviderJsonConfig): ProviderConfigWithApiKey {
+  const apiKey = resolveApiKeyRef(config.apiKey);
   return {
     ...config,
-    hasApiKey: !!config.apiKey && config.apiKey.length > 0,
+    apiKey,
+    hasApiKey: !!apiKey && apiKey.length > 0,
   };
 }
 

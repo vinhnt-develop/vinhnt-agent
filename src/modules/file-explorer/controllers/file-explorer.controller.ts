@@ -2,16 +2,13 @@ import {
   Controller,
   Get,
   Query,
-  Param,
   HttpCode,
   HttpStatus,
   BadRequestException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import {
   ApiTags,
   ApiOperation,
-  ApiParam,
   ApiQuery,
   ApiExtraModels,
 } from '@nestjs/swagger';
@@ -23,6 +20,7 @@ import {
   FileTreeNodeResponseDto,
   FileContentResponseDto,
 } from '../dto';
+import { ProjectPathService } from '@/shared/project-path.service';
 
 @ApiTags('File Explorer')
 @ApiExtraModels(FileTreeNodeResponseDto, FileContentResponseDto)
@@ -30,7 +28,7 @@ import {
 export class FileExplorerController {
   constructor(
     private readonly fileExplorerService: FileExplorerService,
-    private readonly configService: ConfigService,
+    private readonly projectPathService: ProjectPathService,
   ) {}
 
   @Get('tree')
@@ -42,11 +40,18 @@ export class FileExplorerController {
     type: 'string',
     description: 'Absolute path or relative path from workspace root',
   })
+  @ApiQuery({
+    name: 'sessionId',
+    required: false,
+    type: 'string',
+    description: 'Optional session to resolve project path',
+  })
   @ApiDataResponse(FileTreeNodeResponseDto, { isArray: true })
   async getTree(
     @Query('path') requestedPath?: string,
+    @Query('sessionId') sessionId?: string,
   ): Promise<ApiResponse<FileTreeNodeResponseDto[]>> {
-    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
+    const rootDir = await this.projectPathService.resolveOrFallback(sessionId);
     // No path → list workspace root. Has path → use it directly (absolute).
     const dirToList = requestedPath || rootDir;
     const nodes = await this.fileExplorerService.getTree(rootDir, dirToList);
@@ -67,15 +72,22 @@ export class FileExplorerController {
     type: 'string',
     description: 'Relative path to the file',
   })
+  @ApiQuery({
+    name: 'sessionId',
+    required: false,
+    type: 'string',
+    description: 'Optional session to resolve project path',
+  })
   @ApiDataResponse(FileContentResponseDto)
   async getContent(
     @Query('path') requestedPath: string,
+    @Query('sessionId') sessionId?: string,
   ): Promise<ApiResponse<FileContentResponseDto>> {
     if (!requestedPath) {
       throw new BadRequestException('path query parameter is required');
     }
 
-    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
+    const rootDir = await this.projectPathService.resolveOrFallback(sessionId);
     const result = await this.fileExplorerService.getFileContent(
       rootDir,
       requestedPath,

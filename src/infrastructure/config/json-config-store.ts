@@ -137,3 +137,20 @@ export class JsonConfigStore<T extends { id: string }> {
     this.cache = null;
   }
 }
+
+/**
+ * Resolve `apiKey` that may be an `env:VAR_NAME` reference.
+ * Returns the raw value when not an env ref, or null when env is missing.
+ */
+export function resolveApiKeyRef(apiKey: string | null | undefined): string | null {
+  if (!apiKey) return null;
+  if (apiKey.startsWith('env:')) {
+    const varName = apiKey.slice(4).trim();
+    const value = process.env[varName];
+    if (!value) {
+      return null;
+    }
+    return value;
+  }
+  return apiKey;
+}
