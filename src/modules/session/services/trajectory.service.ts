@@ -54,6 +54,44 @@ export interface TrajectoryStep {
     messageCount?: number;
     toolCount?: number;
     systemPromptLength?: number;
+    systemPrompt?: string;
+    messages?: Array<{
+      role: string;
+      content: string;
+      toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+      toolCallId?: string;
+    }>;
+    tools?: Array<{
+      name: string;
+      description: string;
+      parameters?: Record<string, unknown>;
+      risk?: string;
+    }>;
+    selection?: {
+      tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
+      knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
+      plugins?: string[];
+    };
+    agent?: {
+      id?: string;
+      name?: string;
+    };
+  };
+  llmResponse?: {
+    content?: string;
+    toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+    finishReason?: string;
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      reasoningTokens?: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+    };
+    durationMs?: number;
+    model?: string;
+    provider?: string;
+    step?: number;
   };
   llmRetry?: {
     attempt?: number;
@@ -404,16 +442,25 @@ export class TrajectoryService {
     if (steps.length === 0) return;
 
     const llmRequestEvents = runEvents.filter(e => e.type === 'llm.request');
+    const llmResponseEvents = runEvents.filter(e => e.type === 'llm.response');
     const thinkingCompletedEvents = runEvents.filter(e => e.type === 'thinking.completed');
     const llmRetryEvents = runEvents.filter(e => e.type === 'llm.retry');
 
-    for (const step of steps) {
-      const stepIndex = steps.indexOf(step);
-      const isFirstStep = stepIndex === 0;
+    // Map stepNumber -> event by data.step (fallback: sequential order for first step)
+    const requestByStep = new Map<number, TrajectoryEvent>();
+    llmRequestEvents.forEach((e, i) => {
+      const s = typeof e.data?.step === 'number' ? e.data.step : i;
+      if (!requestByStep.has(s)) requestByStep.set(s, e);
+    });
+    const responseByStep = new Map<number, TrajectoryEvent>();
+    llmResponseEvents.forEach((e, i) => {
+      const s = typeof e.data?.step === 'number' ? e.data.step : i;
+      if (!responseByStep.has(s)) responseByStep.set(s, e);
+    });
 
-      // Attach LLM request data to the first step (typically the LLM call step)
-      if (isFirstStep && llmRequestEvents.length > 0) {
-        const requestEvent = llmRequestEvents[0];
+    for (const step of steps) {
+      const requestEvent = requestByStep.get(step.stepNumber);
+      if (requestEvent) {
         step.llmRequest = {
           model: requestEvent.data?.model as string | undefined,
           provider: requestEvent.data?.provider as string | undefined,
@@ -423,7 +470,32 @@ export class TrajectoryService {
           messageCount: requestEvent.data?.messageCount as number | undefined,
           toolCount: requestEvent.data?.toolCount as number | undefined,
           systemPromptLength: requestEvent.data?.systemPromptLength as number | undefined,
+          systemPrompt: requestEvent.data?.systemPrompt as string | undefined,
+          messages: requestEvent.data?.messages as Array<{ role: string; content: string; toolCalls?: Array<{ id: string; name: string; arguments: string }>; toolCallId?: string }> | undefined,
+          tools: requestEvent.data?.tools as Array<{ name: string; description: string; parameters?: Record<string, unknown>; risk?: string }> | undefined,
+          selection: requestEvent.data?.selection as { tools?: Array<{ id: string; name?: string; enabled?: boolean }>; knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>; plugins?: string[] } | undefined,
+          agent: requestEvent.data?.agent as { id?: string; name?: string } | undefined,
         };
+      }
+
+      const responseEvent = responseByStep.get(step.stepNumber);
+      if (responseEvent) {
+        const usage = responseEvent.data?.usage as { inputTokens: number; outputTokens: number; reasoningTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number } | undefined;
+        step.llmResponse = {
+          content: responseEvent.data?.content as string | undefined,
+          toolCalls: responseEvent.data?.toolCalls as Array<{ id: string; name: string; arguments: string }> | undefined,
+          finishReason: responseEvent.data?.finishReason as string | undefined,
+          usage,
+          durationMs: responseEvent.data?.durationMs as number | undefined,
+          model: responseEvent.data?.model as string | undefined,
+          provider: responseEvent.data?.provider as string | undefined,
+          step: responseEvent.data?.step as number | undefined,
+        };
+        // Populate step tokens from llm.response usage
+        if (usage) {
+          step.inputTokens = usage.inputTokens || 0;
+          step.outputTokens = usage.outputTokens || 0;
+        }
       }
 
       // Helper to compute step time bounds
@@ -437,6 +509,8 @@ export class TrajectoryService {
 
       // Attach thinking content to steps (from thinking.completed event)
       const thinkingEvent = thinkingCompletedEvents.find(e => {
+        const s = typeof e.data?.step === 'number' ? e.data.step : undefined;
+        if (s !== undefined) return s === step.stepNumber;
         const eventTime = e.occurredAt ? new Date(e.occurredAt).getTime() : 0;
         return eventTime >= stepStart && eventTime <= stepEnd;
       });
@@ -447,6 +521,8 @@ export class TrajectoryService {
 
       // Attach LLM retry data to steps
       const retryEvent = llmRetryEvents.find(e => {
+        const s = typeof e.data?.step === 'number' ? e.data.step : undefined;
+        if (s !== undefined) return s === step.stepNumber;
         const eventTime = e.occurredAt ? new Date(e.occurredAt).getTime() : 0;
         return eventTime >= stepStart && eventTime <= stepEnd;
       });

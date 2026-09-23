@@ -36,7 +36,7 @@ export class GitExplorerController {
   @ApiOperation({ summary: 'Get git status of changed files' })
   @ApiDataResponse(GitStatusFileResponseDto, { isArray: true })
   async getStatus(): Promise<ApiResponse<GitStatusFileResponseDto[]>> {
-    const rootDir = this.configService.getOrThrow<string>('WORKSPACE_ROOT');
+    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
     const files = await this.gitExplorerService.getStatus(rootDir);
 
     return formatResponse.array(
@@ -53,7 +53,7 @@ export class GitExplorerController {
   async getDiff(
     @Query() query: GitDiffQueryDto,
   ): Promise<ApiResponse<GitDiffResponseDto>> {
-    const rootDir = this.configService.getOrThrow<string>('WORKSPACE_ROOT');
+    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
     const diff = await this.gitExplorerService.getDiff(rootDir, query.path);
 
     return formatResponse.single(GitDiffResponseDto, { diff }, 'Git diff retrieved successfully.');
@@ -66,7 +66,7 @@ export class GitExplorerController {
   async getDiffStaged(
     @Query() query: GitDiffQueryDto,
   ): Promise<ApiResponse<GitDiffResponseDto>> {
-    const rootDir = this.configService.getOrThrow<string>('WORKSPACE_ROOT');
+    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
     const diff = await this.gitExplorerService.getDiffStaged(
       rootDir,
       query.path,
@@ -86,7 +86,7 @@ export class GitExplorerController {
   async getLog(
     @Query() query: GitLogQueryDto,
   ): Promise<ApiResponse<GitLogEntryResponseDto[]>> {
-    const rootDir = this.configService.getOrThrow<string>('WORKSPACE_ROOT');
+    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
     const entries = await this.gitExplorerService.getLog(
       rootDir,
       query.limit || 20,

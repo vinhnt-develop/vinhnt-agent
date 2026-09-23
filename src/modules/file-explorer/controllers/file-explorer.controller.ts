@@ -46,11 +46,10 @@ export class FileExplorerController {
   async getTree(
     @Query('path') requestedPath?: string,
   ): Promise<ApiResponse<FileTreeNodeResponseDto[]>> {
-    const rootDir = this.configService.getOrThrow<string>('WORKSPACE_ROOT');
-    const nodes = await this.fileExplorerService.getTree(
-      rootDir,
-      requestedPath || '.',
-    );
+    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
+    // No path → list workspace root. Has path → use it directly (absolute).
+    const dirToList = requestedPath || rootDir;
+    const nodes = await this.fileExplorerService.getTree(rootDir, dirToList);
 
     return formatResponse.array(
       FileTreeNodeResponseDto,
@@ -76,7 +75,7 @@ export class FileExplorerController {
       throw new BadRequestException('path query parameter is required');
     }
 
-    const rootDir = this.configService.getOrThrow<string>('WORKSPACE_ROOT');
+    const rootDir = this.configService.get<string>('agent.workspaceRoot', '.');
     const result = await this.fileExplorerService.getFileContent(
       rootDir,
       requestedPath,

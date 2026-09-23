@@ -18,13 +18,7 @@ export class CreateProjectDto {
   @Expose({ name: 'description' })
   description?: string;
 
-  @ApiPropertyOptional({ name: 'path', type: String, description: 'Project path on filesystem', example: '/home/user/projects/my-app' })
-  @IsOptional()
-  @IsString()
-  @Expose({ name: 'path' })
-  path?: string;
-
-  @ApiPropertyOptional({ name: 'directory', type: String, description: 'Project directory (alias for path)' })
+  @ApiPropertyOptional({ name: 'directory', type: String, description: 'Project directory on filesystem', example: '/home/user/projects/my-app' })
   @IsOptional()
   @IsString()
   @Expose({ name: 'directory' })
@@ -52,11 +46,11 @@ export class UpdateProjectDto {
   @Expose({ name: 'description' })
   description?: string;
 
-  @ApiPropertyOptional({ name: 'path', type: String, description: 'Project path on filesystem' })
+  @ApiPropertyOptional({ name: 'directory', type: String, description: 'Project directory on filesystem' })
   @IsOptional()
   @IsString()
-  @Expose({ name: 'path' })
-  path?: string;
+  @Expose({ name: 'directory' })
+  directory?: string;
 }
 
 export class ProjectResponseDto {
@@ -76,9 +70,9 @@ export class ProjectResponseDto {
   @Expose({ name: 'description' })
   description?: string;
 
-  @ApiPropertyOptional({ name: 'path', type: String, description: 'Project path', example: '/home/user/projects/my-app' })
-  @Expose({ name: 'path' })
-  path?: string;
+  @ApiPropertyOptional({ name: 'directory', type: String, description: 'Project directory', example: '/home/user/projects/my-app' })
+  @Expose({ name: 'directory' })
+  directory?: string;
 
   @ApiPropertyOptional({ name: 'isActive', type: Boolean, description: 'Is active', example: true })
   @Expose({ name: 'isActive' })

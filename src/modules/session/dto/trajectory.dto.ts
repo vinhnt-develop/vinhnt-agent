@@ -60,6 +60,18 @@ export class TrajectoryStatsDto {
   @Expose({ name: 'totalReasoningTokens' })
   totalReasoningTokens!: number;
 
+  @ApiPropertyOptional({ name: 'totalCacheReadTokens', type: Number, description: 'Total cache read tokens' })
+  @Expose({ name: 'totalCacheReadTokens' })
+  totalCacheReadTokens?: number;
+
+  @ApiPropertyOptional({ name: 'totalCacheWriteTokens', type: Number, description: 'Total cache write tokens' })
+  @Expose({ name: 'totalCacheWriteTokens' })
+  totalCacheWriteTokens?: number;
+
+  @ApiPropertyOptional({ name: 'totalAllTokens', type: Number, description: 'Total all tokens' })
+  @Expose({ name: 'totalAllTokens' })
+  totalAllTokens?: number;
+
   @ApiProperty({ name: 'totalCost', type: Number, description: 'Total cost', example: 0.5 })
   @Expose({ name: 'totalCost' })
   totalCost!: number;
@@ -165,6 +177,72 @@ export class TrajectoryStepDto {
   @ApiProperty({ name: 'durationMs', type: Number, description: 'Duration in milliseconds', example: 1000 })
   @Expose({ name: 'durationMs' })
   durationMs!: number;
+
+  @ApiPropertyOptional({ name: 'thinkingContent', type: String, description: 'Thinking/reasoning content for this step' })
+  @Expose({ name: 'thinkingContent' })
+  thinkingContent?: string;
+
+  @ApiPropertyOptional({ name: 'llmRetry', type: Object, description: 'LLM retry info (attempt, delay, reason)' })
+  @Expose({ name: 'llmRetry' })
+  llmRetry?: { attempt?: number; delayMs?: number; reason?: string };
+
+  @ApiPropertyOptional({ name: 'contextCompressed', type: Object, description: 'Context compaction info' })
+  @Expose({ name: 'contextCompressed' })
+  contextCompressed?: { originalCount?: number; compressedCount?: number; summary?: string };
+
+  @ApiPropertyOptional({ name: 'llmRequest', type: Object, description: 'LLM request details including system prompt, model, temperature, messages, tools, selection' })
+  @Expose({ name: 'llmRequest' })
+  llmRequest?: {
+    model?: string;
+    provider?: string;
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    messageCount?: number;
+    toolCount?: number;
+    systemPromptLength?: number;
+    systemPrompt?: string;
+    messages?: Array<{
+      role: string;
+      content: string;
+      toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+      toolCallId?: string;
+    }>;
+    tools?: Array<{
+      name: string;
+      description: string;
+      parameters?: Record<string, unknown>;
+      risk?: string;
+    }>;
+    selection?: {
+      tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
+      knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
+      plugins?: string[];
+    };
+    agent?: {
+      id?: string;
+      name?: string;
+    };
+  };
+
+  @ApiPropertyOptional({ name: 'llmResponse', type: Object, description: 'LLM response details including content, tool calls, usage' })
+  @Expose({ name: 'llmResponse' })
+  llmResponse?: {
+    content?: string;
+    toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+    finishReason?: string;
+    usage?: {
+      inputTokens: number;
+      outputTokens: number;
+      reasoningTokens?: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+    };
+    durationMs?: number;
+    model?: string;
+    provider?: string;
+    step?: number;
+  };
 }
 
 export class TrajectoryMessageDto {

@@ -6,7 +6,7 @@
   "presencePenalty": 0,
   "maxSteps": 30,
   "thinkingBudget": 1024,
-  "stepTimeout": 120000,
+  "stepTimeout": 600000,
   "toolChoice": "auto",
   "parallelToolCalls": true,
   "maxToolCallsPerStep": 10,

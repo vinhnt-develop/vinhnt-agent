@@ -22,12 +22,11 @@ export class ProjectService {
     return project;
   }
 
-  async create(data: { name: string; description?: string; path?: string; directory?: string; workspaceId: string }) {
-    const projectData = { ...data, path: data.path ?? data.directory };
-    return this.projectRepository.create(projectData);
+  async create(data: { name: string; description?: string; directory?: string; workspaceId: string }) {
+    return this.projectRepository.create(data);
   }
 
-  async update(id: string, data: { name?: string; description?: string; path?: string }) {
+  async update(id: string, data: { name?: string; description?: string; directory?: string }) {
     await this.findById(id);
     return this.projectRepository.update(id, data);
   }

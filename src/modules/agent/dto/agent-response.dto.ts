@@ -26,6 +26,14 @@ export class RunAgentResponseDto {
   @Expose({ name: 'provider' })
   provider?: string;
 
+  @ApiPropertyOptional({ description: 'Error message when run failed', name: 'error', type: String })
+  @Expose({ name: 'error' })
+  error?: string;
+
+  @ApiPropertyOptional({ description: 'Why the model stopped', name: 'stopReason', type: String })
+  @Expose({ name: 'stopReason' })
+  stopReason?: string;
+
   @ApiPropertyOptional({ description: 'Input tokens', example: 1500, name: 'inputTokens', type: Number })
   @Expose({ name: 'inputTokens' })
   inputTokens?: number;
@@ -34,6 +42,22 @@ export class RunAgentResponseDto {
   @Expose({ name: 'outputTokens' })
   outputTokens?: number;
 
+  @ApiPropertyOptional({ description: 'Reasoning tokens', example: 100, name: 'reasoningTokens', type: Number })
+  @Expose({ name: 'reasoningTokens' })
+  reasoningTokens?: number;
+
+  @ApiPropertyOptional({ description: 'Cache read tokens', name: 'cacheReadTokens', type: Number })
+  @Expose({ name: 'cacheReadTokens' })
+  cacheReadTokens?: number;
+
+  @ApiPropertyOptional({ description: 'Cache write tokens', name: 'cacheWriteTokens', type: Number })
+  @Expose({ name: 'cacheWriteTokens' })
+  cacheWriteTokens?: number;
+
+  @ApiPropertyOptional({ description: 'Total tokens', name: 'totalTokens', type: Number })
+  @Expose({ name: 'totalTokens' })
+  totalTokens?: number;
+
   @ApiPropertyOptional({ description: 'Total cost', example: 0.015, name: 'totalCost', type: Number })
   @Expose({ name: 'totalCost' })
   totalCost?: number;
@@ -41,6 +65,28 @@ export class RunAgentResponseDto {
   @ApiPropertyOptional({ description: 'Duration in milliseconds', example: 5000, name: 'durationMs', type: Number })
   @Expose({ name: 'durationMs' })
   durationMs?: number;
+
+  @ApiPropertyOptional({
+    description: 'Nested usage breakdown (mirrors webui RunAgentResponse.usage)',
+    name: 'usage',
+    type: 'object',
+    additionalProperties: true,
+  })
+  @Expose({ name: 'usage' })
+  usage?: {
+    totalSteps?: number;
+    provider?: string;
+    model?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    reasoningTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    totalTokens?: number;
+    cost?: number;
+    durationMs?: number;
+    stopReason?: string;
+  };
 
   @ApiPropertyOptional({ description: 'Extensible metadata', type: 'object', additionalProperties: true, name: 'metadata' })
   @Expose({ name: 'metadata' })

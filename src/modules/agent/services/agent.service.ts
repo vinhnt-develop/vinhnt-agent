@@ -5,6 +5,14 @@ import {
   InMemoryAgentRegistry,
   createAgent,
   AgentKernel,
+  createContextRegistry,
+  createSystemPromptSource,
+  createDateSource,
+  createWorkspaceSource,
+  createInstructionsSource,
+  createAgentSource,
+  createToolContextSource,
+  createCustomSource,
 } from '@vinhnt-sdk/core';
 import type { AgentId } from '@vinhnt-sdk/schema';
 import type {
@@ -34,15 +42,42 @@ export interface RunAgentInput {
   provider?: string;
   settings?: Partial<KernelSettings>;
   projectPath?: string;
+  selection?: {
+    tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
+    knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
+    plugins?: string[];
+  };
 }
 
 export interface RunAgentResult {
   runId: string;
   status: 'succeeded' | 'failed' | 'cancelled';
   output?: string;
+  error?: string;
   totalSteps: number;
   provider?: string;
   model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  totalTokens?: number;
+  totalCost?: number;
+  durationMs?: number;
+  stopReason?: string;
+  usage?: {
+    totalSteps?: number;
+    provider?: string;
+    model?: string;
+    inputTokens?: number;
+    outputTokens?: number;
+    reasoningTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    totalTokens?: number;
+    cost?: number;
+    durationMs?: number;
+    stopReason?: string;
+  };
 }
 
 @Injectable()
@@ -139,7 +174,8 @@ export class AgentService {
     try {
       const tools = this.agentToolkit.getToolsAsDefinitions() as ToolDefinitionLike[];
 
-      // Register memory search tool
+      // Register memory search tool — included in pool; kernel selection
+      // filter (ctx.overrides.selection.tools) excludes it when user disables it.
       const memorySearchTool = createMemorySearchTool(this.sessionStore as any);
       const allTools = [...tools, memorySearchTool as any];
 
@@ -232,11 +268,53 @@ export class AgentService {
           getActivePlugins: () => [],
           async fireHook() { return { ok: true } as any; },
         } as any,
+
+        // System context — layered composition from SDK
+        systemContext: (() => {
+          const registry = createContextRegistry();
+
+          // Priority 0: System prompt — user custom OR SDK default
+          const customPrompt = settings?.systemPrompt;
+          if (customPrompt) {
+            // User-provided system prompt overrides SDK default
+            registry.register(createCustomSource({
+              key: 'core.system-prompt',
+              value: customPrompt,
+              priority: 0,
+            }));
+          } else {
+            // SDK's model-specific default prompt
+            registry.register(createSystemPromptSource(() => modelId));
+          }
+
+          // Priority 5: Tool usage guide (auto-generated from registered tools)
+          registry.register(createToolContextSource(() =>
+            allTools.map((t: any) => ({
+              name: t.name,
+              description: t.description || '',
+              risk: t.risk,
+            })),
+          ));
+
+          // Priority 10: Project instructions (reads AGENTS.md)
+          registry.register(createInstructionsSource(workspaceRoot));
+
+          // Priority 20: Agent roster
+          registry.register(createAgentSource(this.agentRegistry, () => null));
+
+          // Priority 30: Current date/time
+          registry.register(createDateSource());
+
+          // Priority 40: Workspace info (cwd, OS, arch, etc.)
+          registry.register(createWorkspaceSource(workspaceRoot));
+
+          return registry;
+        })(),
       };
 
       const kernel = new AgentKernel(kernelConfig);
       this.kernels.set(fullCacheKey, { kernel, lastAccess: Date.now() });
-      this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${tools.length} workspace=${workspaceRoot}`);
+      this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${allTools.length} workspace=${workspaceRoot}`);
       return kernel;
     } catch (error) {
       this.logger.error('Failed to initialize AgentKernel', error);
@@ -244,7 +322,7 @@ export class AgentService {
     }
   }
 
-  private buildRequestContext(provider?: string, model?: string, workspaceRoot?: string) {
+  private buildRequestContext(provider?: string, model?: string, workspaceRoot?: string, selection?: RunAgentInput['selection']) {
     return {
       requestId: crypto.randomUUID() as RequestId,
       traceId: crypto.randomUUID() as TraceId,
@@ -254,6 +332,7 @@ export class AgentService {
         ...(provider ? { provider } : {}),
         ...(model ? { model } : {}),
         ...(workspaceRoot ? { workspaceRoot } : {}),
+        ...(selection ? { selection } : {}),
       },
     };
   }
@@ -285,13 +364,47 @@ export class AgentService {
     });
 
     const kernel = await this.getKernel(model, provider, settings);
-    const ctx = this.buildRequestContext(provider, model, projectPath);
+    const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
 
     try {
       this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
       const handle = kernel.createRunHandle(prompt, ctx, sessionId);
-      
+
+      // Drain handle.events() so tool.invoked/completed/failed are tracked
+      // into tool_executions (same as WS gateway path).
+      const drainEvents = (async () => {
+        try {
+          for await (const event of handle.events()) {
+            if (event.type === 'tool.invoked') {
+              this.trackingService.startToolExecution({
+                runId,
+                sessionId,
+                toolName: event.data?.toolName || 'unknown',
+                toolInput: event.data?.input as Record<string, unknown> | undefined,
+              });
+            } else if (event.type === 'tool.completed') {
+              this.trackingService.completeToolExecution({
+                runId,
+                toolName: event.data?.toolName || 'unknown',
+                toolOutput: event.data?.output,
+                status: 'completed',
+              });
+            } else if (event.type === 'tool.failed') {
+              this.trackingService.completeToolExecution({
+                runId,
+                toolName: event.data?.toolName || 'unknown',
+                status: 'failed',
+                errorMessage: event.data?.error,
+              });
+            }
+          }
+        } catch {
+          /* drain errors must not fail the run */
+        }
+      })();
+
       const result = await handle.completed;
+      await drainEvents;
       this.agentToolkit.recordTimelineEvent(runId, 'step.completed', { step: 0 });
 
       const durationMs = Date.now() - runStartedAt;
@@ -311,83 +424,110 @@ export class AgentService {
           errorMessage: errorMsg,
         });
 
-        return {
-          runId,
-          status: 'failed',
-          output: errorMsg,
-          totalSteps: 0,
-        };
-      }
-
-      const messages = await this.sessionStore.listMessages(sessionId);
-      const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
-
-      this.agentToolkit.recordTimelineEvent(runId, 'run.completed', { status: 'succeeded' });
-
-      // Record token usage in CostMeter for aggregation
-      const inputTokens = result.inputTokens || lastAssistantMsg?.tokens?.input || 0;
-      const outputTokens = result.outputTokens || lastAssistantMsg?.tokens?.output || 0;
-      const modelId = lastAssistantMsg?.model;
-      if (inputTokens > 0 || outputTokens > 0) {
-        this.agentToolkit.recordTokenUsage(runId, inputTokens, outputTokens, modelId);
-      }
-
-      this.logger.log(`Agent run completed for session ${sessionId}: tokens in=${inputTokens}, out=${outputTokens}, cost=${lastAssistantMsg?.cost || 0}`);
-
-      this.trackingService.completeRun({
-        runId,
-        status: 'succeeded',
-        inputTokens: result.inputTokens || lastAssistantMsg?.tokens?.input,
-        outputTokens: result.outputTokens || lastAssistantMsg?.tokens?.output,
-        reasoningTokens: lastAssistantMsg?.tokens?.reasoning,
-        totalCost: lastAssistantMsg?.cost,
-        durationMs: result.durationMs || durationMs,
-        metadata: { model: lastAssistantMsg?.model, provider: lastAssistantMsg?.provider },
-      });
-
-      // Process turn to extract facts into memory
-      try {
-        const turnMessages = messages
-          .filter((m) => m.role === 'user' || m.role === 'assistant')
-          .map((m) => ({ role: m.role, content: m.content || '' }));
-        await this.knowledgeService.processTurn(sessionId, turnMessages);
-      } catch (memError) {
-        this.logger.warn(`Memory processing failed for session ${sessionId}`, memError);
-      }
-
-      return {
-        runId,
-        status: 'succeeded',
-        output: result.output || lastAssistantMsg?.content,
-        totalSteps: result.totalSteps,
-        provider: lastAssistantMsg?.provider,
-        model: lastAssistantMsg?.model,
-      };
-    } catch (error) {
-      const errorMsg = extractActualErrorMessage(error);
-      this.logger.error(`Agent run failed for session ${sessionId}`, errorMsg);
-      const durationMs = Date.now() - runStartedAt;
-      this.agentToolkit.recordTimelineEvent(runId, 'run.failed', {
-        error: errorMsg,
-      });
-
-      this.trackingService.completeRun({
-        runId,
-        status: 'failed',
-        durationMs,
-        errorMessage: errorMsg,
-      });
-
       return {
         runId,
         status: 'failed',
         output: errorMsg,
+        error: errorMsg,
         totalSteps: 0,
       };
-    } finally {
-      this.agentToolkit.cleanupRun(runId);
     }
+
+    const messages = await this.sessionStore.listMessages(sessionId);
+    const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
+
+    this.agentToolkit.recordTimelineEvent(runId, 'run.completed', { status: 'succeeded' });
+
+    // Record token usage in CostMeter for aggregation
+    const inputTokens = result.inputTokens || lastAssistantMsg?.tokens?.input || 0;
+    const outputTokens = result.outputTokens || lastAssistantMsg?.tokens?.output || 0;
+    const reasoningTokens = lastAssistantMsg?.tokens?.reasoning || 0;
+    const modelId = lastAssistantMsg?.model;
+    if (inputTokens > 0 || outputTokens > 0) {
+      this.agentToolkit.recordTokenUsage(runId, inputTokens, outputTokens, modelId);
+    }
+
+    this.logger.log(`Agent run completed for session ${sessionId}: tokens in=${inputTokens}, out=${outputTokens}, cost=${lastAssistantMsg?.cost || 0}`);
+
+    this.trackingService.completeRun({
+      runId,
+      status: 'succeeded',
+      inputTokens: result.inputTokens || lastAssistantMsg?.tokens?.input,
+      outputTokens: result.outputTokens || lastAssistantMsg?.tokens?.output,
+      reasoningTokens: lastAssistantMsg?.tokens?.reasoning,
+      totalCost: lastAssistantMsg?.cost,
+      durationMs: result.durationMs || durationMs,
+      metadata: { model: lastAssistantMsg?.model, provider: lastAssistantMsg?.provider },
+    });
+
+    // Process turn to extract facts into memory
+    try {
+      const turnMessages = messages
+        .filter((m) => m.role === 'user' || m.role === 'assistant')
+        .map((m) => ({ role: m.role, content: m.content || '' }));
+      await this.knowledgeService.processTurn(sessionId, turnMessages);
+    } catch (memError) {
+      this.logger.warn(`Memory processing failed for session ${sessionId}`, memError);
+    }
+
+    const totalSteps = result.totalSteps;
+    const stopReason = (result as { stopReason?: string }).stopReason;
+    const totalTokens = inputTokens + outputTokens + reasoningTokens;
+
+    return {
+      runId,
+      status: 'succeeded',
+      output: result.output || lastAssistantMsg?.content,
+      totalSteps,
+      provider: lastAssistantMsg?.provider,
+      model: lastAssistantMsg?.model,
+      inputTokens,
+      outputTokens,
+      reasoningTokens,
+      totalTokens,
+      totalCost: lastAssistantMsg?.cost,
+      durationMs: result.durationMs || durationMs,
+      stopReason,
+      // Nested usage block matching webui RunAgentResponse.usage
+      usage: {
+        totalSteps,
+        provider: lastAssistantMsg?.provider,
+        model: lastAssistantMsg?.model,
+        inputTokens,
+        outputTokens,
+        reasoningTokens,
+        totalTokens,
+        cost: lastAssistantMsg?.cost,
+        durationMs: result.durationMs || durationMs,
+        stopReason,
+      },
+    };
+  } catch (error) {
+    const errorMsg = extractActualErrorMessage(error);
+    this.logger.error(`Agent run failed for session ${sessionId}`, errorMsg);
+    const durationMs = Date.now() - runStartedAt;
+    this.agentToolkit.recordTimelineEvent(runId, 'run.failed', {
+      error: errorMsg,
+    });
+
+    this.trackingService.completeRun({
+      runId,
+      status: 'failed',
+      durationMs,
+      errorMessage: errorMsg,
+    });
+
+    return {
+      runId,
+      status: 'failed',
+      output: errorMsg,
+      error: errorMsg,
+      totalSteps: 0,
+    };
+  } finally {
+    this.agentToolkit.cleanupRun(runId);
   }
+}
 
   async runAgentStreaming(input: RunAgentInput): Promise<{ handle: any; runId: string }> {
     const { sessionId, prompt, model, provider, settings, projectPath } = input;
@@ -395,7 +535,7 @@ export class AgentService {
 
     try {
       const kernel = await this.getKernel(model, provider, settings);
-      const ctx = this.buildRequestContext(provider, model, projectPath);
+      const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
       const handle = kernel.createRunHandle(prompt, ctx, sessionId);
 
       const runId = handle.runId as string;

@@ -41,13 +41,13 @@ export class AgentController {
       const project = await this.projectRepository.findById(session.projectId);
       if (!project) return undefined;
 
-      if (project.path) return project.path;
+      if (project.directory) return project.directory;
 
       if (project.workspaceId) {
         const workspace = await this.workspaceRepository.findById(project.workspaceId);
-        if (workspace?.path) {
+        if (workspace?.directory) {
           const path = await import('node:path');
-          return path.default.join(workspace.path, project.name);
+          return path.default.join(workspace.directory, project.name);
         }
       }
 
@@ -78,6 +78,7 @@ export class AgentController {
       model: dto.model,
       provider: dto.provider,
       projectPath,
+      selection: dto.selection,
     });
     return formatResponse.single(
       RunAgentResponseDto,
@@ -93,5 +94,24 @@ export class AgentController {
   async getStats(): Promise<ApiResponse<AgentStatsResponseDto>> {
     const stats = await this.agentService.getRunStats();
     return formatResponse.single(AgentStatsResponseDto, stats, 'Stats retrieved successfully.');
+  }
+
+  @Get('tools')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List available agent tools' })
+  async getTools(): Promise<ApiResponse<Array<{ id: string; name: string; description: string; risk: string }>>> {
+    const toolkit = this.agentService.getAgentToolkit();
+    const defs = toolkit.getToolsAsDefinitions();
+    const tools = defs.map((t: any) => ({
+      id: t.id || t.name,
+      name: t.name,
+      description: t.description || '',
+      risk: t.risk || 'read-only',
+    }));
+    return {
+      status: 'success',
+      message: 'Tools retrieved successfully.',
+      data: tools,
+    };
   }
 }

@@ -15,8 +15,9 @@ export class FileExplorerService {
   private readonly logger = new Logger(FileExplorerService.name);
 
   private resolveSafePath(rootDir: string, requestedPath: string): string {
-    const resolved = path.resolve(rootDir, requestedPath);
-    if (!resolved.startsWith(rootDir)) {
+    const resolvedRoot = path.resolve(rootDir);
+    const resolved = path.resolve(resolvedRoot, requestedPath);
+    if (!resolved.startsWith(resolvedRoot)) {
       throw new Error('Path traversal detected');
     }
     return resolved;

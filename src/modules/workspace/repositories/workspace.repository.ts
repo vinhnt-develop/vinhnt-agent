@@ -52,7 +52,7 @@ export class WorkspaceRepository {
       .get();
   }
 
-  async create(data: { name: string; description?: string; path?: string; ownerId: string }) {
+  async create(data: { name: string; description?: string; directory?: string; ownerId: string }) {
     const id = uuid();
     const now = new Date().toISOString();
 
@@ -60,7 +60,7 @@ export class WorkspaceRepository {
       id,
       name: data.name,
       description: data.description,
-      path: data.path,
+      directory: data.directory,
       ownerId: data.ownerId,
       isActive: false,
       createdAt: now,
@@ -70,11 +70,11 @@ export class WorkspaceRepository {
     return this.findById(id);
   }
 
-  async update(id: string, data: { name?: string; description?: string; path?: string }) {
+  async update(id: string, data: { name?: string; description?: string; directory?: string }) {
     const updateData: Record<string, any> = { updatedAt: new Date().toISOString() };
     if (data.name !== undefined) updateData.name = data.name;
     if (data.description !== undefined) updateData.description = data.description;
-    if (data.path !== undefined) updateData.path = data.path;
+    if (data.directory !== undefined) updateData.directory = data.directory;
 
     this.db.update(workspaces).set(updateData).where(eq(workspaces.id, id)).run();
     return this.findById(id);

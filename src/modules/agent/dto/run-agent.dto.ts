@@ -7,8 +7,73 @@ import {
   MinLength,
   MaxLength,
   IsOptional,
+  ValidateNested,
+  IsArray,
 } from 'class-validator';
-import { Expose } from 'class-transformer';
+import { Expose, Type } from 'class-transformer';
+
+export class SelectedToolDto {
+  @ApiProperty({ name: 'id', type: String, description: 'Tool ID', example: 'read_file' })
+  @IsString()
+  @IsNotEmpty()
+  @Expose({ name: 'id' })
+  id!: string;
+
+  @ApiPropertyOptional({ name: 'name', type: String, description: 'Tool display name', example: 'Read File' })
+  @IsString()
+  @IsOptional()
+  @Expose({ name: 'name' })
+  name?: string;
+
+  @ApiPropertyOptional({ name: 'enabled', type: Boolean, description: 'Whether tool is enabled', example: true })
+  @IsOptional()
+  @Expose({ name: 'enabled' })
+  enabled?: boolean;
+}
+
+export class SelectedKnowledgeDto {
+  @ApiProperty({ name: 'id', type: String, description: 'Knowledge entry ID', example: '123e4567-e89b-12d3-a456-426614174000' })
+  @IsString()
+  @IsNotEmpty()
+  @Expose({ name: 'id' })
+  id!: string;
+
+  @ApiPropertyOptional({ name: 'key', type: String, description: 'Knowledge key', example: 'coding-standards' })
+  @IsString()
+  @IsOptional()
+  @Expose({ name: 'key' })
+  key?: string;
+
+  @ApiPropertyOptional({ name: 'enabled', type: Boolean, description: 'Whether knowledge is enabled', example: true })
+  @IsOptional()
+  @Expose({ name: 'enabled' })
+  enabled?: boolean;
+}
+
+export class SelectionDto {
+  @ApiPropertyOptional({ name: 'tools', type: [SelectedToolDto], description: 'Selected tools' })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SelectedToolDto)
+  @IsOptional()
+  @Expose({ name: 'tools' })
+  tools?: SelectedToolDto[];
+
+  @ApiPropertyOptional({ name: 'knowledge', type: [SelectedKnowledgeDto], description: 'Selected knowledge entries' })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => SelectedKnowledgeDto)
+  @IsOptional()
+  @Expose({ name: 'knowledge' })
+  knowledge?: SelectedKnowledgeDto[];
+
+  @ApiPropertyOptional({ name: 'plugins', type: [String], description: 'Selected plugin IDs', example: ['web-search'] })
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  @Expose({ name: 'plugins' })
+  plugins?: string[];
+}
 
 export class RunAgentDto {
   @ApiProperty({
@@ -115,4 +180,15 @@ export class RunAgentDto {
   @IsOptional()
   @Expose({ name: 'workspaceId' })
   workspaceId?: string;
+
+  @ApiPropertyOptional({
+    name: 'selection',
+    type: SelectionDto,
+    description: 'User-selected resources for this run (tools, knowledge, plugins)',
+  })
+  @ValidateNested()
+  @Type(() => SelectionDto)
+  @IsOptional()
+  @Expose({ name: 'selection' })
+  selection?: SelectionDto;
 }

@@ -129,6 +129,11 @@ export class AgentGateway
       provider?: string;
       workspaceId?: string;
       settings?: Partial<KernelSettings>;
+      selection?: {
+        tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
+        knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
+        plugins?: string[];
+      };
     },
   ) {
     const runStartedAt = Date.now();
@@ -412,15 +417,15 @@ export class AgentGateway
       const project = await this.projectRepository.findById(session.projectId);
       if (!project) return undefined;
 
-      // 1. Project has explicit path → use it
-      if (project.path) return project.path;
+      // 1. Project has explicit directory → use it
+      if (project.directory) return project.directory;
 
-      // 2. Workspace has path → use workspace.path + project.name
+      // 2. Workspace has directory → use workspace.directory + project.name
       if (project.workspaceId) {
         const workspace = await this.workspaceRepository.findById(project.workspaceId);
-        if (workspace?.path) {
+        if (workspace?.directory) {
           const path = await import('node:path');
-          return path.default.join(workspace.path, project.name);
+          return path.default.join(workspace.directory, project.name);
         }
       }
 
