@@ -152,6 +152,7 @@ export class ProviderFactory {
    * Build a provider from explicit config (no caching).
    */
   buildProvider(config: ProviderConfig): ModelProvider {
+    const debugWire = process.env.LLM_DEBUG_BODY === '1' || process.env.LLM_DEBUG_BODY === 'true';
     const opts: OpenAICompatibleProviderOptions = {
       baseUrl: config.baseUrl,
       apiKey: config.apiKey || '',
@@ -159,6 +160,17 @@ export class ProviderFactory {
       providerName: config.provider,
       timeoutMs: 120_000,
       retry: { maxRetries: 3, baseBackoffMs: 1000, maxBackoffMs: 30_000 },
+      ...(debugWire
+        ? {
+            onWireRequest: (url: string, body: unknown) => {
+              try {
+                this.logger.debug(`[llm.wire] POST ${url} ${JSON.stringify(body)}`);
+              } catch {
+                /* ignore */
+              }
+            },
+          }
+        : {}),
     };
 
     const pricing: ModelPricing | undefined =

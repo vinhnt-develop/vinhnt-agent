@@ -182,6 +182,8 @@ export class AgentService {
     this.evictOldestKernel();
 
     try {
+      // Refresh custom tools from disk so CRUD changes are visible without restart
+      await this.agentToolkit.loadCustomToolsFromStore().catch(() => undefined);
       const tools = this.agentToolkit.getToolsAsDefinitions() as ToolDefinitionLike[];
 
       // Register memory search tool — included in pool; kernel selection
@@ -297,11 +299,11 @@ export class AgentService {
             registry.register(createSystemPromptSource(() => modelId));
           }
 
-          // Priority 5: Tool usage guide (auto-generated from registered tools)
+          // Priority 5: Tool index — names only (descriptions/schemas ride tools[] API)
           registry.register(createToolContextSource(() =>
             allTools.map((t: any) => ({
               name: t.name ?? t.id,
-              description: t.description || '',
+              id: t.id,
               risk: t.risk,
             })),
           ));

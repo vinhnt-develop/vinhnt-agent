@@ -14,13 +14,25 @@ import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
 import { CustomToolService } from '../services/custom-tool.service';
+import { AgentToolkit } from '@/modules/agent/services';
 import { CreateCustomToolDto, UpdateCustomToolDto, CustomToolResponseDto } from '../dto';
 
 @ApiTags('Custom Tools')
 @ApiExtraModels(CreateCustomToolDto, UpdateCustomToolDto, CustomToolResponseDto)
 @Controller({ path: 'custom-tools', version: '1' })
 export class CustomToolController {
-  constructor(private readonly customToolService: CustomToolService) {}
+  constructor(
+    private readonly customToolService: CustomToolService,
+    private readonly agentToolkit: AgentToolkit,
+  ) {}
+
+  private async refreshToolkit(): Promise<void> {
+    try {
+      await this.agentToolkit.loadCustomToolsFromStore();
+    } catch {
+      /* non-fatal — next kernel build will reload */
+    }
+  }
 
   @Get()
   @HttpCode(HttpStatus.OK)
@@ -48,6 +60,7 @@ export class CustomToolController {
   @ApiDataResponse(CustomToolResponseDto)
   async create(@Body() dto: CreateCustomToolDto): Promise<ApiResponse<CustomToolResponseDto>> {
     const tool = await this.customToolService.create(dto);
+    await this.refreshToolkit();
     return formatResponse.single(CustomToolResponseDto, tool, 'Custom tool created successfully.');
   }
 
@@ -62,6 +75,7 @@ export class CustomToolController {
     @Body() dto: UpdateCustomToolDto,
   ): Promise<ApiResponse<CustomToolResponseDto>> {
     const tool = await this.customToolService.update(id, dto);
+    await this.refreshToolkit();
     return formatResponse.single(CustomToolResponseDto, tool, 'Custom tool updated successfully.');
   }
 
@@ -72,6 +86,7 @@ export class CustomToolController {
   @ApiDataResponse(null)
   async remove(@Param('id') id: string): Promise<ApiResponse<null>> {
     await this.customToolService.softDelete(id);
+    await this.refreshToolkit();
     return formatResponse.single(null, null, 'Custom tool deleted successfully.');
   }
 }

@@ -74,8 +74,10 @@ tsconfig.tsbuildinfo
 *.bak
 *.orig
 
-# Private personal
+# Private personal / local dev
 AGENTS.md
+.agents/
+ISSUE-*.md
 *.dbml
 *.dbdiagram
 tsconfig.tsbuildinfo

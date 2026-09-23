@@ -192,6 +192,7 @@ export class TrajectoryStepDto {
 
   @ApiPropertyOptional({ name: 'llmRequest', type: Object, description: 'LLM request details including system prompt, model, temperature, messages, tools, selection' })
   @Expose({ name: 'llmRequest' })
+  /** Flat view of `llm.request` for the trajectory API (unwrapped from nested event shape). */
   llmRequest?: {
     model?: string;
     provider?: string;
@@ -212,9 +213,12 @@ export class TrajectoryStepDto {
       name: string;
       description: string;
       parameters?: Record<string, unknown>;
+      /** Off-wire origin (id/risk/metadata/annotations) flattened for UI. */
+      id?: string;
       risk?: string;
       source?: string;
       metadata?: Record<string, unknown>;
+      annotations?: Record<string, unknown>;
     }>;
     selection?: {
       tools?: Array<{ id: string; name?: string; enabled?: boolean }>;

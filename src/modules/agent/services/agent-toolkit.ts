@@ -1,5 +1,10 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import {
+  CUSTOM_TOOLS_CONFIG,
+  type CustomToolJsonConfig,
+  type JsonConfigStore,
+} from '@/infrastructure/config';
 import {
   ToolRegistry,
   InMemoryFileHistory,
@@ -99,6 +104,8 @@ export class AgentToolkit implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly mcpServerService: McpServerService,
+    @Inject(CUSTOM_TOOLS_CONFIG)
+    private readonly customToolsConfig?: JsonConfigStore<CustomToolJsonConfig>,
   ) {
     this.envSnapshot = resolveEnv(process.env);
   }
@@ -110,10 +117,40 @@ export class AgentToolkit implements OnModuleInit {
       this.logger.error('Failed to initialize built-in tools', error);
     }
     try {
+      await this.loadCustomToolsFromStore();
+    } catch (error) {
+      this.logger.warn('Failed to load custom tools on startup', error);
+    }
+    try {
       await this.connectMcpServersFromDb();
     } catch (error) {
       this.logger.warn('Failed to connect MCP servers on startup', error);
     }
+  }
+
+  /** Load active custom tools from JsonConfigStore into the registry. */
+  async loadCustomToolsFromStore(): Promise<void> {
+    this.customToolsConfig?.reload();
+    const all = this.customToolsConfig?.findAll() ?? [];
+    const tools = all.filter((t) => t.isActive);
+    const activeIds = new Set(tools.map((t) => `custom_${t.id}`));
+    for (const t of this.toolRegistry.list()) {
+      if (t.id.startsWith('custom_') && !activeIds.has(t.id)) {
+        this.toolRegistry.unregister(t.id);
+      }
+    }
+    if (tools.length === 0) return;
+    this.registerCustomTools(
+      tools.map((t) => ({
+        id: t.id,
+        name: t.name,
+        description: t.description ?? '',
+        inputSchema: (t.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>,
+        handlerType: (t.handlerType === 'mock' ? 'mock' : 'webhook') as 'webhook' | 'mock',
+        handlerConfig: (t.handlerConfig ?? {}) as Record<string, unknown>,
+        timeoutMs: t.timeoutMs ?? undefined,
+      })),
+    );
   }
 
   initializeTools(workspaceRoot?: string): void {

@@ -107,13 +107,24 @@ export class AgentController {
   async getTools(): Promise<ApiResponse<Array<{ id: string; name: string; description: string; risk: string; source: string }>>> {
     const toolkit = this.agentService.getAgentToolkit();
     const defs = toolkit.getToolsAsDefinitions();
-    const tools = defs.map((t: any) => ({
+    const mapTool = (t: any) => ({
       id: t.id || t.name,
       name: t.name || t.id,
       description: t.description || '',
       risk: t.risk || 'read-only',
       source: (t.metadata?.source as string) || (String(t.id || '').startsWith('custom_') ? 'custom' : String(t.id || '').startsWith('mcp__') ? 'mcp' : 'system'),
-    }));
+    });
+    const tools = defs.map(mapTool);
+    // memory_search is appended at kernel build time, not in the toolkit registry
+    if (!tools.some((t) => t.id === 'memory_search')) {
+      tools.push({
+        id: 'memory_search',
+        name: 'memory_search',
+        description: 'Search past conversations by keyword.',
+        risk: 'read',
+        source: 'knowledge',
+      });
+    }
     return {
       status: 'success',
       message: 'Tools retrieved successfully.',

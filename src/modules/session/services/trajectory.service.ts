@@ -63,11 +63,13 @@ export interface TrajectoryStep {
     }>;
     tools?: Array<{
       name: string;
+      id?: string;
       description: string;
       parameters?: Record<string, unknown>;
       risk?: string;
       source?: string;
       metadata?: Record<string, unknown>;
+      annotations?: Record<string, unknown>;
     }>;
     selection?: {
       tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
@@ -463,20 +465,40 @@ export class TrajectoryService {
     for (const step of steps) {
       const requestEvent = requestByStep.get(step.stepNumber);
       if (requestEvent) {
+        const d = requestEvent.data ?? {};
+        const params = (d.params ?? {}) as Record<string, unknown>;
+        const prompt = (d.prompt ?? {}) as Record<string, unknown>;
+        // Legacy flat fields (pre-grouping) still readable from old rows
+        const tools = Array.isArray(d.tools)
+          ? (d.tools as Array<Record<string, unknown>>).map((t) => {
+              const origin = (t.origin ?? {}) as Record<string, unknown>;
+              return {
+                name: String(t.name ?? ''),
+                description: String(t.description ?? ''),
+                parameters: t.parameters as Record<string, unknown> | undefined,
+                id: (origin.id ?? t.id) as string | undefined,
+                risk: (origin.risk ?? t.risk) as string | undefined,
+                source: (origin.metadata as { source?: string } | undefined)?.source
+                  ?? (t.metadata as { source?: string } | undefined)?.source,
+                metadata: (origin.metadata ?? t.metadata) as Record<string, unknown> | undefined,
+                annotations: (origin.annotations ?? t.annotations) as Record<string, unknown> | undefined,
+              };
+            })
+          : undefined;
         step.llmRequest = {
-          model: requestEvent.data?.model as string | undefined,
-          provider: requestEvent.data?.provider as string | undefined,
-          temperature: requestEvent.data?.temperature as number | undefined,
-          maxTokens: requestEvent.data?.maxTokens as number | undefined,
-          topP: requestEvent.data?.topP as number | undefined,
-          messageCount: requestEvent.data?.messageCount as number | undefined,
-          toolCount: requestEvent.data?.toolCount as number | undefined,
-          systemPromptLength: requestEvent.data?.systemPromptLength as number | undefined,
-          systemPrompt: requestEvent.data?.systemPrompt as string | undefined,
-          messages: requestEvent.data?.messages as Array<{ role: string; content: string; toolCalls?: Array<{ id: string; name: string; arguments: string }>; toolCallId?: string }> | undefined,
-          tools: requestEvent.data?.tools as Array<{ name: string; description: string; parameters?: Record<string, unknown>; risk?: string; source?: string; metadata?: Record<string, unknown> }> | undefined,
-          selection: requestEvent.data?.selection as { tools?: Array<{ id: string; name?: string; enabled?: boolean }>; knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>; plugins?: string[] } | undefined,
-          agent: requestEvent.data?.agent as { id?: string; name?: string } | undefined,
+          model: d.model as string | undefined,
+          provider: d.provider as string | undefined,
+          temperature: (params.temperature ?? d.temperature) as number | undefined,
+          maxTokens: (params.maxTokens ?? d.maxTokens) as number | undefined,
+          topP: (params.topP ?? d.topP) as number | undefined,
+          messageCount: (prompt.messageCount ?? d.messageCount) as number | undefined,
+          toolCount: (prompt.toolCount ?? d.toolCount) as number | undefined,
+          systemPromptLength: (prompt.systemPromptLength ?? d.systemPromptLength) as number | undefined,
+          systemPrompt: (prompt.systemPrompt ?? d.systemPrompt) as string | undefined,
+          messages: d.messages as Array<{ role: string; content: string; toolCalls?: Array<{ id: string; name: string; arguments: string }>; toolCallId?: string }> | undefined,
+          tools,
+          selection: d.selection as { tools?: Array<{ id: string; name?: string; enabled?: boolean }>; knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>; plugins?: string[] } | undefined,
+          agent: d.agent as { id?: string; name?: string } | undefined,
         };
       }
 
