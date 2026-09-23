@@ -3,9 +3,11 @@ import {
   Post,
   Get,
   Body,
+  Param,
   HttpCode,
   HttpStatus,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -129,6 +131,58 @@ export class AgentController {
       status: 'success',
       message: 'Tools retrieved successfully.',
       data: tools,
+    };
+  }
+
+  @Get('permissions/pending')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List pending tool-approval requests' })
+  async getPendingPermissions(): Promise<ApiResponse<Array<{
+    id: string;
+    runId: string;
+    toolName: string;
+    resource: string;
+    reason: string;
+    prompt: string;
+    occurredAt: string;
+  }>>> {
+    const store = this.agentService.getAgentToolkit().getApprovalStore();
+    const pending = store.pendingRequests().map((r) => ({
+      id: r.id,
+      runId: r.runId,
+      toolName: r.toolName,
+      resource: r.resource,
+      reason: r.reason,
+      prompt: r.prompt,
+      occurredAt: r.occurredAt,
+    }));
+    return {
+      status: 'success',
+      message: 'Pending permissions retrieved.',
+      data: pending,
+    };
+  }
+
+  @Post('permissions/:id/reply')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resolve a pending tool-approval request' })
+  async replyPermission(
+    @Param('id') id: string,
+    @Body() body: { reply: 'once' | 'always' | 'reject' },
+  ): Promise<ApiResponse<{ id: string; reply: string }>> {
+    if (!body?.reply || !['once', 'always', 'reject'].includes(body.reply)) {
+      throw new BadRequestException('reply must be one of: once, always, reject');
+    }
+    const store = this.agentService.getAgentToolkit().getApprovalStore();
+    const req = store.getRequest(id);
+    if (!req) {
+      throw new NotFoundException('Permission request not found or already resolved');
+    }
+    store.resolveRequest(id, body.reply);
+    return {
+      status: 'success',
+      message: 'Permission resolved.',
+      data: { id, reply: body.reply },
     };
   }
 }

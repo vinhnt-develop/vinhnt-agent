@@ -110,6 +110,7 @@ export class AgentService {
   getEventBus() { return this.eventBus; }
   getTokenMeter() { return this.tokenMeter; }
   getAgentToolkit() { return this.agentToolkit; }
+  getApprovalStore() { return this.agentToolkit.getApprovalStore(); }
 
   private getKernelCacheKey(providerName?: string, modelId?: string): string {
     return `${providerName || 'default'}|${modelId || 'default'}`;
@@ -257,7 +258,9 @@ export class AgentService {
         // Permissions
         permissions: {
           approvalStore: this.agentToolkit.getApprovalStore(),
-          autoApprovalEnabled: this.configService.get<boolean>('agent.autoApproval', false),
+          // Local agent: default auto-approve so write/shell don't dead-end
+          // waiting for an approval UI that doesn't exist yet (P0 fix).
+          autoApprovalEnabled: this.configService.get<boolean>('agent.autoApproval', true),
           globalPermissionRules: this.configService.get<Record<string, string | Record<string, string>>>('agent.globalPermissionRules'),
           permissionRiskDefaults: this.configService.get<Record<string, string>>('agent.permissionRiskDefaults'),
         },
