@@ -16,7 +16,9 @@ export const agentConfig = registerAs('agent', () => ({
   stepTimeout: parseInt(process.env.AGENT_STEP_TIMEOUT || '120000', 10),
   doomLoopThreshold: parseInt(process.env.AGENT_DOOM_LOOP_THRESHOLD || '3', 10),
   thinkingBudget: parseInt(process.env.AGENT_THINKING_BUDGET || '1024', 10),
-  autoApproval: process.env.AGENT_AUTO_APPROVAL === 'true',
+  // Default TRUE so write/shell don't dead-end waiting for an approval UI.
+  // Set AGENT_AUTO_APPROVAL=false to require explicit approval for risk≥write.
+  autoApproval: process.env.AGENT_AUTO_APPROVAL !== 'false',
   maxKernelCacheSize: parseInt(process.env.AGENT_MAX_KERNEL_CACHE_SIZE || '50', 10),
   globalPermissionRules: safeJsonParse<Record<string, string | Record<string, string>> | undefined>(
     process.env.AGENT_PERMISSION_RULES,

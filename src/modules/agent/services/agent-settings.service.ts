@@ -82,6 +82,7 @@ export class AgentSettingsService {
         const data = fs.readFileSync(this.settingsPath, 'utf-8');
         const saved = JSON.parse(data);
         this.settings = { ...DEFAULT_SETTINGS, ...saved };
+        this.settings.compactionThreshold = AgentSettingsService.normalizeThreshold(this.settings.compactionThreshold);
         this.logger.log(`Loaded kernel settings from ${this.settingsPath}`);
       } else {
         this.saveSettings();
@@ -104,12 +105,22 @@ export class AgentSettingsService {
     }
   }
 
+  /** WebUI may send percent (50–100); kernel expects ratio (0–1]. Normalize both ways. */
+  private static normalizeThreshold(value: number): number {
+    if (!Number.isFinite(value) || value <= 0) return DEFAULT_SETTINGS.compactionThreshold;
+    return value > 1 ? Math.min(value / 100, 1) : Math.min(value, 1);
+  }
+
   getSettings(): KernelSettings {
-    return { ...this.settings };
+    return { ...this.settings, compactionThreshold: AgentSettingsService.normalizeThreshold(this.settings.compactionThreshold) };
   }
 
   updateSettings(partial: Partial<KernelSettings>): KernelSettings {
-    this.settings = { ...this.settings, ...partial };
+    const next: Partial<KernelSettings> = { ...partial };
+    if (next.compactionThreshold !== undefined) {
+      next.compactionThreshold = AgentSettingsService.normalizeThreshold(next.compactionThreshold);
+    }
+    this.settings = { ...this.settings, ...next };
     this.saveSettings();
     this.logger.log('Kernel settings updated');
     return this.getSettings();
