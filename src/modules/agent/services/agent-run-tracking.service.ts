@@ -13,6 +13,10 @@ export class AgentRunTrackingService {
   private readonly logger = new Logger(AgentRunTrackingService.name);
   /** Pending tool executions keyed by unique invocation ID. */
   private readonly pendingToolExecutions = new Map<string, PendingToolExecution>();
+  /** runId → sessionId (so tool rows get a session even if caller omits it). */
+  private readonly runSessions = new Map<string, string>();
+  /** runId → tool invocations observed so far (fallback for tool_calls_count). */
+  private readonly runToolCounts = new Map<string, number>();
 
   constructor(
     private readonly agentRunRepository: AgentRunRepository,
@@ -27,6 +31,7 @@ export class AgentRunTrackingService {
     triggerType?: string;
   }): void {
     try {
+      this.runSessions.set(data.runId, data.sessionId);
       this.agentRunRepository.create({
         id: data.runId,
         sessionId: data.sessionId,
@@ -70,7 +75,11 @@ export class AgentRunTrackingService {
       const actualModel = data.metadata?.model as string | undefined;
       const actualProvider = data.metadata?.provider as string | undefined;
 
-      this.agentRunRepository.update(data.runId, {
+      // handle.completed.usage.toolCallsCount is undefined today (SDK never
+      // sets it) — fall back to the count observed from tool.* events.
+      const toolCallsCount = data.toolCallsCount ?? this.runToolCounts.get(data.runId) ?? 0;
+
+      const updatePayload: Record<string, unknown> = {
         status: data.status,
         ...(actualModel ? { model: actualModel } : {}),
         ...(actualProvider ? { provider: actualProvider } : {}),
@@ -82,16 +91,32 @@ export class AgentRunTrackingService {
         totalTokens: data.totalTokens,
         totalCost: data.totalCost,
         durationMs: data.durationMs,
-        toolCallsCount: data.toolCallsCount,
+        toolCallsCount,
         errorMessage: data.errorMessage,
         stopReason: data.stopReason,
         completedAt: new Date().toISOString(),
         metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
-      });
+      };
+
+      // Success overwrites any prior "Run timed out (stale)" leftover —
+      // otherwise UI shows green check + stale error forever.
+      if (data.status === 'succeeded' && data.errorMessage === undefined) {
+        updatePayload.errorMessage = null;
+        updatePayload.stopReason = data.stopReason ?? null;
+      }
+
+      this.agentRunRepository.update(data.runId, updatePayload as never);
+      this.runSessions.delete(data.runId);
+      this.runToolCounts.delete(data.runId);
       this.logger.debug(`Agent run completed: ${data.runId} status=${data.status}`);
     } catch (error) {
       this.logger.warn(`Failed to track run completion: ${error}`);
     }
+  }
+
+  /** Tool invocations observed so far for a run (undefined if unknown). */
+  getToolCallsCount(runId: string): number | undefined {
+    return this.runToolCounts.get(runId);
   }
 
   startToolExecution(data: {
@@ -101,11 +126,14 @@ export class AgentRunTrackingService {
     toolInput?: Record<string, unknown>;
   }): string | null {
     try {
+      if (data.runId) {
+        this.runToolCounts.set(data.runId, (this.runToolCounts.get(data.runId) ?? 0) + 1);
+      }
       const id = crypto.randomUUID();
       this.toolExecutionRepository.create({
         id,
         runId: data.runId,
-        sessionId: data.sessionId,
+        sessionId: data.sessionId ?? (data.runId ? this.runSessions.get(data.runId) : undefined),
         toolName: data.toolName,
         toolInput: data.toolInput,
         status: 'running',
@@ -143,7 +171,33 @@ export class AgentRunTrackingService {
         }
       }
 
-      if (!oldestKey) return;
+      if (!oldestKey) {
+        // tool.failed can arrive without a matching tool.invoked (e.g. the
+        // executor denies external paths before emitting invoked) — record an
+        // orphan failed row so the attempt is not silently dropped.
+        if (data.status === 'failed') {
+          const id = crypto.randomUUID();
+          this.toolExecutionRepository.create({
+            id,
+            runId: data.runId,
+            sessionId: data.runId ? this.runSessions.get(data.runId) : undefined,
+            toolName: data.toolName,
+            status: 'failed',
+            startedAt: new Date().toISOString(),
+          });
+          this.toolExecutionRepository.update(id, {
+            status: 'failed',
+            errorMessage: data.errorMessage,
+            durationMs: 0,
+            completedAt: new Date().toISOString(),
+          });
+          if (data.runId) {
+            this.runToolCounts.set(data.runId, (this.runToolCounts.get(data.runId) ?? 0) + 1);
+          }
+          this.logger.debug(`Tool failed without invoked (orphan row): ${data.toolName} id=${id}`);
+        }
+        return;
+      }
       const pending = this.pendingToolExecutions.get(oldestKey)!;
 
       const durationMs = Date.now() - pending.startedAt;

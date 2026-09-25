@@ -19,6 +19,9 @@ export const agentConfig = registerAs('agent', () => ({
   // Default TRUE so write/shell don't dead-end waiting for an approval UI.
   // Set AGENT_AUTO_APPROVAL=false to require explicit approval for risk≥write.
   autoApproval: process.env.AGENT_AUTO_APPROVAL !== 'false',
+  // Approval wait timeout — independent of stale-run threshold (5 min).
+  // Unanswered dialog fails the tool after this window (default 2 min).
+  approvalTimeoutMs: parseInt(process.env.AGENT_APPROVAL_TIMEOUT_MS || '120000', 10),
   maxKernelCacheSize: parseInt(process.env.AGENT_MAX_KERNEL_CACHE_SIZE || '50', 10),
   globalPermissionRules: safeJsonParse<Record<string, string | Record<string, string>> | undefined>(
     process.env.AGENT_PERMISSION_RULES,

@@ -338,6 +338,8 @@ export class AgentService {
           autoApprovalEnabled:
             autoApprovalOverride ??
             this.configService.get<boolean>('agent.autoApproval', true),
+          // approvalTimeoutMs defaults to 120s inside published PermissionGate —
+          // cannot pass yet until core@with-approvalTimeoutMs is published.
           globalPermissionRules: this.configService.get<Record<string, string | Record<string, string>>>('agent.globalPermissionRules'),
           permissionRiskDefaults: this.configService.get<Record<string, string>>('agent.permissionRiskDefaults'),
         },
@@ -475,41 +477,10 @@ export class AgentService {
     try {
       this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
 
-      // Drain handle.events() so tool.invoked/completed/failed are tracked
-      // into tool_executions (same as WS gateway path).
-      const drainEvents = (async () => {
-        try {
-          for await (const event of handle.events()) {
-            if (event.type === 'tool.invoked') {
-              this.trackingService.startToolExecution({
-                runId,
-                sessionId,
-                toolName: event.data?.toolName || 'unknown',
-                toolInput: event.data?.input as Record<string, unknown> | undefined,
-              });
-            } else if (event.type === 'tool.completed') {
-              this.trackingService.completeToolExecution({
-                runId,
-                toolName: event.data?.toolName || 'unknown',
-                toolOutput: event.data?.output,
-                status: 'completed',
-              });
-            } else if (event.type === 'tool.failed') {
-              this.trackingService.completeToolExecution({
-                runId,
-                toolName: event.data?.toolName || 'unknown',
-                status: 'failed',
-                errorMessage: event.data?.error,
-              });
-            }
-          }
-        } catch {
-          /* drain errors must not fail the run */
-        }
-      })();
-
+      // Tool executions are tracked by AgentGateway's eventBus subscription
+      // (handle.events() only yields agent.started/completed/error — tool.*
+      // flows through the EventBus, so draining here would never see them).
       const result = await handle.completed;
-      await drainEvents;
       this.agentToolkit.recordTimelineEvent(runId, 'step.completed', { step: 0 });
 
       const durationMs = Date.now() - runStartedAt;
@@ -689,15 +660,16 @@ export class AgentService {
     }
   }
 
-  async cancelRun(runId: string): Promise<void> {
+  async cancelRun(runId: string): Promise<boolean> {
     const handle = this.activeHandles.get(runId);
     if (handle && !handle.isCancelled) {
       handle.isCancelled = true;
       handle.cancel();
       this.logger.log(`Cancelled run: ${runId}`);
-    } else {
-      this.logger.warn(`No active handle found for run: ${runId}`);
+      return true;
     }
+    this.logger.warn(`No active handle found for run: ${runId}`);
+    return false;
   }
 
   async getSessionMessages(sessionId: string) {

@@ -70,6 +70,12 @@ export class AgentGateway
         const runId = (event as any).aggregateId as string | undefined;
         if (!runId) return;
 
+        // Tool events flow through the EventBus (handle.events() only yields
+        // agent.started/completed/error) — persist tool_executions here so
+        // both WS and HTTP runs are tracked. Must run before the clientId
+        // check below: rows are needed even when no client is attached.
+        this.trackToolEvent(event, runId);
+
         const clientId = this.runToClient.get(runId);
         if (!clientId) return;
 
@@ -99,6 +105,35 @@ export class AgentGateway
     this.unsubscribe?.();
     if (this.errorCleanupInterval) {
       clearInterval(this.errorCleanupInterval);
+    }
+  }
+
+  private trackToolEvent(event: { type?: string; data?: unknown }, runId: string): void {
+    const type = event.type;
+    if (type !== 'tool.invoked' && type !== 'tool.completed' && type !== 'tool.failed') return;
+    const data = (event.data ?? {}) as Record<string, unknown>;
+    const toolName = (data.toolName as string) || 'unknown';
+
+    if (type === 'tool.invoked') {
+      this.trackingService.startToolExecution({
+        runId,
+        toolName,
+        toolInput: data.input as Record<string, unknown> | undefined,
+      });
+    } else if (type === 'tool.completed') {
+      this.trackingService.completeToolExecution({
+        runId,
+        toolName,
+        toolOutput: data.output,
+        status: 'completed',
+      });
+    } else {
+      this.trackingService.completeToolExecution({
+        runId,
+        toolName,
+        status: 'failed',
+        errorMessage: data.error as string | undefined,
+      });
     }
   }
 
@@ -137,12 +172,15 @@ export class AgentGateway
   ) {
     const runStartedAt = Date.now();
     let eventCount = 0;
-    let toolCallCount = 0;
     let runId: string | undefined;
 
     // Merge request settings with saved settings
     const savedSettings = this.settingsService.getSettings();
-    const mergedSettings = { ...savedSettings, ...data.settings };
+    // Server savedSettings wins for global kernel params — client may send a
+    // stale snapshot (fetched before user hit Save), which used to pin maxTokens
+    // at 4096 even after Settings showed 16000. Only explicit per-run fields
+    // from the client (permissionMode, selection, model) are applied elsewhere.
+    const mergedSettings = { ...data.settings, ...savedSettings };
 
     this.logger.log(
       `Run requested | client=${client.id} session=${data.sessionId} model=${data.model ?? 'default'} temperature=${mergedSettings.temperature}`,
@@ -182,30 +220,9 @@ export class AgentGateway
 
       for await (const event of handle.events()) {
         eventCount++;
-
-        if (event.type === 'tool.invoked') {
-          toolCallCount++;
-          this.trackingService.startToolExecution({
-            runId,
-            sessionId: data.sessionId,
-            toolName: event.data?.toolName || 'unknown',
-            toolInput: event.data?.input,
-          });
-        } else if (event.type === 'tool.completed') {
-          this.trackingService.completeToolExecution({
-            runId,
-            toolName: event.data?.toolName || 'unknown',
-            toolOutput: event.data?.output,
-            status: 'completed',
-          });
-        } else if (event.type === 'tool.failed') {
-          this.trackingService.completeToolExecution({
-            runId,
-            toolName: event.data?.toolName || 'unknown',
-            status: 'failed',
-            errorMessage: event.data?.error,
-          });
-        }
+        // Tool.* events are persisted via onModuleInit's eventBus
+        // subscription (handle.events() only yields agent.started/completed/
+        // error) — no tracking here to avoid double-inserting rows.
       }
 
       const completed = await handle.completed;
@@ -215,13 +232,34 @@ export class AgentGateway
       const trackedError = trackedEntry?.error;
       if (trackedEntry) this.runErrors.delete(runId);
 
+      const completedStatus = (completed as any)?.status as string | undefined;
+      const isCancelled =
+        completedStatus === 'cancelled' ||
+        (completed as any)?.cancelled === true ||
+        handle.isCancelled === true;
+
       const hasError =
         !completed ||
         (completed as any).error ||
-        (completed as any).status === 'failed' ||
+        completedStatus === 'failed' ||
         trackedError;
 
-      if (hasError) {
+      if (isCancelled && !hasError) {
+        this.logger.log(
+          `Run CANCELLED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount}`,
+        );
+        this.trackingService.completeRun({
+          runId,
+          status: 'cancelled',
+          durationMs,
+          errorMessage: 'Run cancelled by user',
+          stopReason: 'cancelled',
+        });
+        client.emit('run:cancelled', {
+          runId,
+          sessionId: data.sessionId,
+        });
+      } else if (hasError) {
         const rawError =
           trackedError ||
           (completed as any)?.error ||
@@ -230,7 +268,7 @@ export class AgentGateway
         const errorMsg = extractActualErrorMessage(rawError);
 
         this.logger.error(
-          `Run FAILED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} error=${errorMsg}`,
+          `Run FAILED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${this.trackingService.getToolCallsCount(runId) ?? 0} error=${errorMsg}`,
         );
 
         this.trackingService.completeRun({
@@ -260,7 +298,7 @@ export class AgentGateway
         const inputTokens = completed?.usage?.inputTokens ?? 0;
         const outputTokens = completed?.usage?.outputTokens ?? 0;
         this.logger.log(
-          `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${toolCallCount} tokens=${inputTokens}+${outputTokens}`,
+          `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${this.trackingService.getToolCallsCount(runId) ?? 0} tokens=${inputTokens}+${outputTokens}`,
         );
 
         this.trackingService.completeRun({
@@ -329,8 +367,18 @@ export class AgentGateway
     try {
       this.logger.log(`Cancel requested by ${client.id} for run ${data.runId}`);
       const sessionId = this.runToSession.get(data.runId);
-      await this.agentService.cancelRun(data.runId);
-      client.emit('run:cancelled', { runId: data.runId, sessionId });
+      const cancelled = await this.agentService.cancelRun(data.runId);
+      if (cancelled) {
+        client.emit('run:cancelled', { runId: data.runId, sessionId });
+      } else {
+        // Handle not found — do NOT claim cancelled (run may already be done
+        // or never started). Surface error so client doesn't show false success.
+        client.emit('run:error', {
+          error: 'Run not found or already completed — cannot cancel',
+          runId: data.runId,
+          sessionId,
+        });
+      }
     } catch (error) {
       const errorMsg = extractActualErrorMessage(error);
       this.logger.error(`Cancel failed for run ${data.runId}: ${errorMsg}`);
@@ -409,7 +457,7 @@ export class AgentGateway
           type === 'agent.handoff' ||
           type === 'context.compressed'
         ) {
-          return { type, data, ...base };
+          return { type, data, ...base, ...(event?.id ? { id: event.id } : {}) };
         }
         return null;
     }
