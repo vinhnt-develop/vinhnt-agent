@@ -36,6 +36,13 @@
       "when": 1790000000000,
       "tag": "0005_rename_path_to_directory",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790759141474,
+      "tag": "0006_add_tool_call_id",
+      "breakpoints": true
     }
   ]
 }

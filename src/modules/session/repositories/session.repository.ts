@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { sessions, messages } from '../schemas/session.schema';
-import { eq, sql, desc, asc } from 'drizzle-orm';
+import { toolExecutions } from '@/modules/agent/schemas/agent.schema';
+import { eq, sql, desc, asc, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
@@ -142,6 +143,46 @@ export class SessionRepository {
       .where(eq(messages.sessionId, sessionId))
       .all();
 
-    return { data: rows, total, page, limit, order };
+    // Enrich role='tool' rows with their execution (toolName/duration/status)
+    // so the chat can render a real tool chip — messages only store toolCallId.
+    const toolCallIds = rows
+      .filter((r) => r.role === 'tool' && r.toolCallId)
+      .map((r) => r.toolCallId as string);
+    let data = rows;
+    if (toolCallIds.length > 0) {
+      const execs = this.db
+        .select({
+          toolCallId: toolExecutions.toolCallId,
+          toolName: toolExecutions.toolName,
+          durationMs: toolExecutions.durationMs,
+          status: toolExecutions.status,
+        })
+        .from(toolExecutions)
+        .where(inArray(toolExecutions.toolCallId, toolCallIds))
+        .all();
+      const byCallId = new Map(
+        execs
+          .filter((e) => e.toolCallId)
+          .map((e) => [e.toolCallId as string, e]),
+      );
+      if (byCallId.size > 0) {
+        data = rows.map((r) => {
+          if (r.role !== 'tool' || !r.toolCallId) return r;
+          const exec = byCallId.get(r.toolCallId);
+          if (!exec) return r;
+          return {
+            ...r,
+            metadata: {
+              ...((r.metadata as Record<string, unknown> | null) ?? {}),
+              toolName: exec.toolName,
+              toolDurationMs: exec.durationMs ?? 0,
+              toolStatus: exec.status ?? 'completed',
+            },
+          };
+        });
+      }
+    }
+
+    return { data, total, page, limit, order };
   }
 }

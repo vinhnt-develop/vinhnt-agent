@@ -12,6 +12,7 @@ export class ToolExecutionRepository {
     runId?: string;
     sessionId?: string;
     messageId?: string;
+    toolCallId?: string;
     toolName: string;
     toolInput?: Record<string, unknown>;
     status?: string;
@@ -24,6 +25,7 @@ export class ToolExecutionRepository {
         runId: data.runId,
         sessionId: data.sessionId,
         messageId: data.messageId,
+        toolCallId: data.toolCallId,
         toolName: data.toolName,
         toolInput: data.toolInput || {},
         status: data.status || 'running',

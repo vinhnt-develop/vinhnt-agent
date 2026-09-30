@@ -23,7 +23,7 @@ import type {
 } from '@vinhnt-sdk/schema';
 import { InMemoryEventBus } from '@vinhnt-sdk/event';
 import { TokenMeter } from '@vinhnt-sdk/llm';
-import { createMemorySearchTool } from '@vinhnt-sdk/knowledge';
+import { createMemorySearchTool, ContextCompressor } from '@vinhnt-sdk/knowledge';
 import { SqliteSessionStore } from '@/infrastructure/storage/sqlite-session-store';
 import { SqliteMemoryStore } from '@/infrastructure/storage/sqlite-memory-store';
 import { SqliteRunEventStore } from '@/infrastructure/storage/sqlite-run-event-store';
@@ -230,16 +230,30 @@ export class AgentService {
     return JSON.stringify(relevant);
   }
 
+  /** 'ask' | 'edit' | 'full' — the approval mode resolved for a kernel instance. */
+  private resolvePermissionMode(
+    settings?: Partial<KernelSettings>,
+    override?: 'ask' | 'edit' | 'full',
+  ): 'ask' | 'edit' | 'full' {
+    // AGENT_AUTO_APPROVAL=false is an ops kill switch: always ask, even if the
+    // client requested edit/full.
+    const envAutoApproval = this.configService.get<boolean>('agent.autoApproval', true);
+    if (envAutoApproval === false) return 'ask';
+    // Per-run composer choice > saved kernel settings > ask (opt-in via UI).
+    return override ?? settings?.permissionMode ?? 'ask';
+  }
+
   private async getKernel(
     modelId?: string,
     providerName?: string,
     settings?: Partial<KernelSettings>,
-    autoApprovalOverride?: boolean,
+    permissionModeOverride?: 'ask' | 'edit' | 'full',
   ): Promise<any> {
+    const permissionMode = this.resolvePermissionMode(settings, permissionModeOverride);
     const cacheKey = this.getKernelCacheKey(providerName, modelId);
     const settingsHash = this.getSettingsHash(settings);
-    const autoApprovalKey = autoApprovalOverride !== undefined ? `|aa:${autoApprovalOverride}` : '';
-    const fullCacheKey = settingsHash ? `${cacheKey}|${settingsHash}${autoApprovalKey}` : `${cacheKey}${autoApprovalKey}`;
+    const permissionKey = `|pm:${permissionMode}`;
+    const fullCacheKey = settingsHash ? `${cacheKey}|${settingsHash}${permissionKey}` : `${cacheKey}${permissionKey}`;
 
     const cached = this.kernels.get(fullCacheKey);
     if (cached) {
@@ -317,13 +331,14 @@ export class AgentService {
 
         // Self-correction
         selfCorrectOnFailure: settings?.selfCorrectOnFailure ?? true,
-        maxSelfCorrectAttempts: settings?.maxSelfCorrectAttempts ?? 3,
+        maxSelfCorrectAttempts: settings?.maxSelfCorrectAttempts ?? 1,
 
         // Thinking
         thinkingBudget: settings?.thinkingBudget ?? this.configService.get<number>('agent.thinkingBudget', 1024),
 
         // Context management
         compactionThreshold: settings?.compactionThreshold ?? 0.75,
+        compactor: new ContextCompressor(),
 
         // Sub-agents
         maxSubAgentDepth: settings?.maxSubAgentDepth ?? 3,
@@ -334,14 +349,19 @@ export class AgentService {
         // Permissions
         permissions: {
           approvalStore: this.agentToolkit.getApprovalStore(),
-          // Per-run permissionMode wins; else config default (local agent auto-approve).
-          autoApprovalEnabled:
-            autoApprovalOverride ??
-            this.configService.get<boolean>('agent.autoApproval', true),
-          // approvalTimeoutMs defaults to 120s inside published PermissionGate —
-          // cannot pass yet until core@with-approvalTimeoutMs is published.
+          autoApprovalEnabled: permissionMode !== 'ask',
+          // Wired from agent.approvalTimeoutMs (env AGENT_APPROVAL_TIMEOUT_MS).
+          approvalTimeoutMs: this.configService.get<number>('agent.approvalTimeoutMs', 120_000),
           globalPermissionRules: this.configService.get<Record<string, string | Record<string, string>>>('agent.globalPermissionRules'),
-          permissionRiskDefaults: this.configService.get<Record<string, string>>('agent.permissionRiskDefaults'),
+          permissionRiskDefaults:
+            permissionMode === 'full'
+              ? {
+                  ...(this.configService.get<Record<string, string>>('agent.permissionRiskDefaults') ?? {}),
+                  // "Full access" label means what it says — lift the destructive
+                  // floor (still subject to the AGENT_AUTO_APPROVAL kill switch).
+                  destructive: 'allow',
+                }
+              : this.configService.get<Record<string, string>>('agent.permissionRiskDefaults'),
         },
 
         // Sub-agents
@@ -432,22 +452,24 @@ export class AgentService {
       return { runId: '', status: 'failed', output: 'Session ID is required', totalSteps: 0 };
     }
 
+    // One live run per session — rejects double-starts (e.g. duplicate send
+    // via silent HTTP fallback while a WS run is already going).
+    const activeRun = this.trackingService.findActiveRunForSession(sessionId);
+    if (activeRun) {
+      const msg = `A run is already in progress for this session (run ${activeRun.id})`;
+      this.logger.warn(`runAgent rejected for session ${sessionId}: ${msg}`);
+      return { runId: '', status: 'failed', output: msg, totalSteps: 0 };
+    }
+
     const existingMessages = await this.sessionStore.listMessages(sessionId);
     if (existingMessages.length === 0) {
       this.logger.warn(`Session ${sessionId} has no messages - session may not exist in DB`);
     }
 
     const runStartedAt = Date.now();
-    // Permission mode from composer: ask → require approval; edit/full → auto-approve.
-    // Falls back to global agent.autoApproval config when no mode is sent.
-    const autoApprovalFromMode =
-      input.permissionMode === 'ask'
-        ? false
-        : input.permissionMode === 'edit' || input.permissionMode === 'full'
-          ? true
-          : undefined;
-
-    const kernel = await this.getKernel(model, provider, settings, autoApprovalFromMode);
+    // Permission mode: per-run composer choice > saved kernel settings >
+    // AGENT_AUTO_APPROVAL — resolved inside getKernel.
+    const kernel = await this.getKernel(model, provider, settings, input.permissionMode);
     const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
 
     // Fallback: no projectPath → workspaceRoot with explicit warn (not silent monorepo root).
@@ -609,16 +631,21 @@ export class AgentService {
     const { sessionId, prompt, model, provider, settings, projectPath } = input;
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
+    // One live run per session (same guard as HTTP path) — thrown error is
+    // surfaced to the client as run:error by the gateway's catch block.
+    const activeRun = this.trackingService.findActiveRunForSession(sessionId);
+    if (activeRun) {
+      throw new Error(
+        `A run is already in progress for this session (run ${activeRun.id})`,
+      );
+    }
+
     try {
       const kernel = await this.getKernel(
         model,
         provider,
         settings,
-        input.permissionMode === 'ask'
-          ? false
-          : input.permissionMode === 'edit' || input.permissionMode === 'full'
-            ? true
-            : undefined,
+        input.permissionMode,
       );
       const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
       if (!projectPath) {

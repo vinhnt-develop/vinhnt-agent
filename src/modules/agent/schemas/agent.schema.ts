@@ -30,6 +30,8 @@ export const toolExecutions = sqliteTable('tool_executions', {
   runId: text('run_id'),
   sessionId: text('session_id').references(() => sessions.id),
   messageId: text('message_id'),
+  /** Model's tool_call id (messages.toolCallId) — joins tool rows to executions. */
+  toolCallId: text('tool_call_id'),
   toolName: text('tool_name').notNull(),
   toolInput: text('tool_input', { mode: 'json' }).default({}),
   toolOutput: text('tool_output', { mode: 'json' }).default({}),
@@ -41,6 +43,7 @@ export const toolExecutions = sqliteTable('tool_executions', {
 }, (table) => [
   index('idx_tool_executions_run_id').on(table.runId),
   index('idx_tool_executions_session_id').on(table.sessionId),
+  index('idx_tool_executions_tool_call_id').on(table.toolCallId),
 ]);
 
 export const agentRuns = sqliteTable('agent_runs', {

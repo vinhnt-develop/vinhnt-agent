@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { agentRuns } from '@/modules/agent/schemas/agent.schema';
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 
 @Injectable()
 export class AgentRunRepository {
@@ -70,6 +70,22 @@ export class AgentRunRepository {
       .where(eq(agentRuns.sessionId, sessionId))
       .orderBy(sql`${agentRuns.createdAt} DESC`)
       .all();
+  }
+
+  /**
+   * Latest run still marked 'running' for the session. Call cleanupStaleRuns
+   * first so a zombie row can't block the session forever.
+   */
+  findActiveBySessionId(sessionId: string) {
+    return this.db
+      .select()
+      .from(agentRuns)
+      .where(
+        and(eq(agentRuns.sessionId, sessionId), eq(agentRuns.status, 'running')),
+      )
+      .orderBy(sql`${agentRuns.startedAt} DESC`)
+      .limit(1)
+      .get();
   }
 
   incrementToolCallsCount(id: string) {

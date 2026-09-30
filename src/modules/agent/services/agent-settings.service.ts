@@ -20,6 +20,10 @@ export interface KernelSettings {
   maxToolCallsPerStep: number;
   maxConcurrentToolCalls: number;
 
+  // Permissions — default approval mode when the client doesn't send one
+  // (per-run permissionMode from the composer always wins).
+  permissionMode: 'ask' | 'edit' | 'full';
+
   // Behavior
   selfCorrectOnFailure: boolean;
   maxSelfCorrectAttempts: number;
@@ -52,8 +56,9 @@ const DEFAULT_SETTINGS: KernelSettings = {
   parallelToolCalls: true,
   maxToolCallsPerStep: 10,
   maxConcurrentToolCalls: 5,
+  permissionMode: 'ask',
   selfCorrectOnFailure: true,
-  maxSelfCorrectAttempts: 3,
+  maxSelfCorrectAttempts: 1,
   compactionThreshold: 0.75,
   doomLoopThreshold: 3,
   maxSubAgentDepth: 3,
@@ -119,6 +124,10 @@ export class AgentSettingsService {
     const next: Partial<KernelSettings> = { ...partial };
     if (next.compactionThreshold !== undefined) {
       next.compactionThreshold = AgentSettingsService.normalizeThreshold(next.compactionThreshold);
+    }
+    // Runtime guard — the PUT body is untyped JSON despite Partial<KernelSettings>.
+    if (next.permissionMode !== undefined && !['ask', 'edit', 'full'].includes(next.permissionMode)) {
+      delete next.permissionMode;
     }
     this.settings = { ...this.settings, ...next };
     this.saveSettings();

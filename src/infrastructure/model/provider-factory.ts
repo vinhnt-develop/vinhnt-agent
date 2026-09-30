@@ -297,8 +297,6 @@ class ProviderAdapter implements ModelProvider {
 }
 
 class GoogleProviderAdapter extends ProviderAdapter {
-  private readonly tokenizer = new GoogleTokenizer();
-
   constructor(
     inner: OpenAICompatibleProvider,
     pricing?: ModelPricing,
@@ -306,8 +304,11 @@ class GoogleProviderAdapter extends ProviderAdapter {
     super(inner, 'google', pricing);
   }
 
+  // Uses the module-level tokenizer (not an instance field): SDK run-loop
+  // spreads `countTokens` onto a plain object (core 0.10.3 run-loop.ts:773),
+  // so instance state would be lost and `this.tokenizer` came back undefined.
   override countTokens(text: string): number {
-    return this.tokenizer.count(text);
+    return GOOGLE_TOKENIZER.count(text);
   }
 
   override async *stream(
@@ -341,8 +342,8 @@ class GoogleProviderAdapter extends ProviderAdapter {
         typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
       ).join('\n');
 
-      inputTokens = this.tokenizer.count(promptText);
-      outputTokens = lastTextContent ? this.tokenizer.count(lastTextContent) : 0;
+      inputTokens = GOOGLE_TOKENIZER.count(promptText);
+      outputTokens = lastTextContent ? GOOGLE_TOKENIZER.count(lastTextContent) : 0;
 
       yield {
         type: 'usage',
@@ -363,3 +364,7 @@ class GoogleTokenizer {
     return Math.max(1, tokenEstimate);
   }
 }
+
+// Stateless — safe to share; must not live on adapter instances because the
+// SDK's run-loop passes `countTokens` around detached from its receiver.
+const GOOGLE_TOKENIZER = new GoogleTokenizer();

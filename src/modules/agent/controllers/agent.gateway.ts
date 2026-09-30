@@ -55,6 +55,17 @@ export class AgentGateway
   /** Map runId → sessionId for client-side filtering. */
   private runToSession = new Map<string, string>();
 
+  /** `${runId}:${toolId}` → invoke timestamp (durationMs for tool.* events). */
+  private toolStartTimes = new Map<string, number>();
+
+  /** `${runId}:${toolId}` → duration computed at completion, consumed by transform. */
+  private toolResultDurations = new Map<string, number>();
+
+  /** toolName → { source, risk } lazy catalog (TTL-refreshed). */
+  private toolMetaCache: Map<string, { source: string; risk?: string }> | null =
+    null;
+  private toolMetaCacheAt = 0;
+
   constructor(
     private readonly agentService: AgentService,
     private readonly trackingService: AgentRunTrackingService,
@@ -113,27 +124,39 @@ export class AgentGateway
     if (type !== 'tool.invoked' && type !== 'tool.completed' && type !== 'tool.failed') return;
     const data = (event.data ?? {}) as Record<string, unknown>;
     const toolName = (data.toolName as string) || 'unknown';
+    const toolCallId = (data.toolId as string) || undefined;
+    const key = `${runId}:${toolCallId || toolName}`;
 
     if (type === 'tool.invoked') {
+      this.toolStartTimes.set(key, Date.now());
       this.trackingService.startToolExecution({
         runId,
+        toolCallId,
         toolName,
         toolInput: data.input as Record<string, unknown> | undefined,
       });
-    } else if (type === 'tool.completed') {
-      this.trackingService.completeToolExecution({
-        runId,
-        toolName,
-        toolOutput: data.output,
-        status: 'completed',
-      });
     } else {
-      this.trackingService.completeToolExecution({
-        runId,
-        toolName,
-        status: 'failed',
-        errorMessage: data.error as string | undefined,
-      });
+      // Record duration for the WS transform (consumed once; purged if no client).
+      const start = this.toolStartTimes.get(key);
+      if (start !== undefined) {
+        this.toolResultDurations.set(key, Date.now() - start);
+        this.toolStartTimes.delete(key);
+      }
+      if (type === 'tool.completed') {
+        this.trackingService.completeToolExecution({
+          runId,
+          toolName,
+          toolOutput: data.output,
+          status: 'completed',
+        });
+      } else {
+        this.trackingService.completeToolExecution({
+          runId,
+          toolName,
+          status: 'failed',
+          errorMessage: data.error as string | undefined,
+        });
+      }
     }
   }
 
@@ -417,27 +440,57 @@ export class AgentGateway
           content: data?.content ?? data?.delta ?? '',
           ...base,
         };
-      case 'tool.invoked':
+      case 'tool.invoked': {
+        const toolId = data?.toolId as string | undefined;
+        const meta = this.getToolMeta(String(data?.toolName ?? ''));
         return {
           type: 'tool.invoked',
           toolName: data?.toolName,
+          toolId,
           input: data?.input,
+          ...meta,
+          // E3: prefer provenance carried by the SDK event; catalog is fallback.
+          ...(data?.source !== undefined ? { source: data.source } : {}),
+          ...(data?.risk !== undefined ? { risk: data.risk } : {}),
           ...base,
         };
-      case 'tool.completed':
+      }
+      case 'tool.completed': {
+        const toolId = data?.toolId as string | undefined;
+        const meta = this.getToolMeta(String(data?.toolName ?? ''));
         return {
           type: 'tool.completed',
           toolName: data?.toolName,
+          toolId,
           output: data?.output,
+          // Prefer SDK-computed duration (E3); timing-map is fallback.
+          durationMs:
+            data?.durationMs ??
+            this.takeToolDuration(runId, toolId, data?.toolName),
+          ...meta,
+          ...(data?.source !== undefined ? { source: data.source } : {}),
+          ...(data?.risk !== undefined ? { risk: data.risk } : {}),
           ...base,
         };
-      case 'tool.failed':
+      }
+      case 'tool.failed': {
+        const toolId = data?.toolId as string | undefined;
+        const meta = this.getToolMeta(String(data?.toolName ?? ''));
         return {
           type: 'tool.failed',
           toolName: data?.toolName,
+          toolId,
           error: data?.error,
+          // Prefer SDK-computed duration (E3); timing-map is fallback.
+          durationMs:
+            data?.durationMs ??
+            this.takeToolDuration(runId, toolId, data?.toolName),
+          ...meta,
+          ...(data?.source !== undefined ? { source: data.source } : {}),
+          ...(data?.risk !== undefined ? { risk: data.risk } : {}),
           ...base,
         };
+      }
       case 'thinking.content':
         return {
           type: 'thinking',
@@ -463,12 +516,77 @@ export class AgentGateway
     }
   }
 
+  /**
+   * Lazy tool catalog: toolName → { source, risk }, refreshed every 15s so
+   * MCP/custom tool registration is picked up without a restart.
+   */
+  private getToolMeta(
+    toolName: string,
+  ): { source?: string; risk?: string } {
+    const now = Date.now();
+    if (!this.toolMetaCache || now - this.toolMetaCacheAt > 15_000) {
+      const cache = new Map<string, { source: string; risk?: string }>();
+      try {
+        const defs = (this.agentService
+          .getAgentToolkit()
+          .getToolsAsDefinitions() ?? []) as Array<{
+          id?: string;
+          name?: string;
+          risk?: string;
+          metadata?: { source?: string };
+        }>;
+        for (const t of defs) {
+          const id = String(t.id || t.name || '');
+          if (!id) continue;
+          cache.set(id, {
+            source:
+              (t.metadata?.source as string) ||
+              (id.startsWith('custom_')
+                ? 'custom'
+                : id.startsWith('mcp__')
+                  ? 'mcp'
+                  : 'system'),
+            risk: t.risk,
+          });
+        }
+      } catch {
+        // toolkit unavailable — fall through with empty cache
+      }
+      this.toolMetaCache = cache;
+      this.toolMetaCacheAt = now;
+    }
+    const hit = toolName ? this.toolMetaCache.get(toolName) : undefined;
+    return hit ? { ...hit } : {};
+  }
+
+  /** Consume a completion duration recorded by trackToolEvent (once). */
+  private takeToolDuration(
+    runId: string,
+    toolId?: string,
+    toolName?: unknown,
+  ): number | undefined {
+    const key = `${runId}:${toolId || String(toolName || '')}`;
+    const dur = this.toolResultDurations.get(key);
+    if (dur !== undefined) {
+      this.toolResultDurations.delete(key);
+      return dur;
+    }
+    return undefined;
+  }
+
   private cleanupRunErrors() {
     const now = Date.now();
     for (const [runId, entry] of this.runErrors.entries()) {
       if (now - entry.timestamp > RUN_ERROR_TTL_MS) {
         this.runErrors.delete(runId);
       }
+    }
+    // Purge orphaned tool timing entries (no client attached / event lost).
+    for (const [key, ts] of this.toolStartTimes.entries()) {
+      if (now - ts > RUN_ERROR_TTL_MS) this.toolStartTimes.delete(key);
+    }
+    for (const [key, ts] of this.toolResultDurations.entries()) {
+      if (now - ts > RUN_ERROR_TTL_MS) this.toolResultDurations.delete(key);
     }
   }
 }

@@ -23,6 +23,17 @@ export class AgentRunTrackingService {
     private readonly toolExecutionRepository: ToolExecutionRepository,
   ) {}
 
+  /**
+   * Concurrency guard for a session: reap stale 'running' zombies first (so a
+   * stuck row can't block the session forever), then return the live run that
+   * must block a new one. Returns null when a new run may start.
+   */
+  findActiveRunForSession(sessionId: string): { id: string } | null {
+    this.agentRunRepository.cleanupStaleRuns(sessionId);
+    const active = this.agentRunRepository.findActiveBySessionId(sessionId);
+    return active ? { id: active.id } : null;
+  }
+
   startRun(data: {
     runId: string;
     sessionId: string;
@@ -122,6 +133,7 @@ export class AgentRunTrackingService {
   startToolExecution(data: {
     runId?: string;
     sessionId?: string;
+    toolCallId?: string;
     toolName: string;
     toolInput?: Record<string, unknown>;
   }): string | null {
@@ -134,6 +146,7 @@ export class AgentRunTrackingService {
         id,
         runId: data.runId,
         sessionId: data.sessionId ?? (data.runId ? this.runSessions.get(data.runId) : undefined),
+        toolCallId: data.toolCallId,
         toolName: data.toolName,
         toolInput: data.toolInput,
         status: 'running',

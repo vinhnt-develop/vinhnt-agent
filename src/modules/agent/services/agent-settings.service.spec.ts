@@ -19,7 +19,7 @@ function makeService() {
     maxToolCallsPerStep: 10,
     maxConcurrentToolCalls: 5,
     selfCorrectOnFailure: true,
-    maxSelfCorrectAttempts: 3,
+    maxSelfCorrectAttempts: 1,
     compactionThreshold: 0.75,
     doomLoopThreshold: 3,
     maxSubAgentDepth: 3,

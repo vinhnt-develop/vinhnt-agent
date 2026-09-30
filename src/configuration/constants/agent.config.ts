@@ -16,8 +16,9 @@ export const agentConfig = registerAs('agent', () => ({
   stepTimeout: parseInt(process.env.AGENT_STEP_TIMEOUT || '120000', 10),
   doomLoopThreshold: parseInt(process.env.AGENT_DOOM_LOOP_THRESHOLD || '3', 10),
   thinkingBudget: parseInt(process.env.AGENT_THINKING_BUDGET || '1024', 10),
-  // Default TRUE so write/shell don't dead-end waiting for an approval UI.
-  // Set AGENT_AUTO_APPROVAL=false to require explicit approval for risk≥write.
+  // Kill switch: AGENT_AUTO_APPROVAL=false forces ask for every run regardless
+  // of permissionMode. Otherwise the kernel setting permissionMode (default
+  // "ask"; composer can override per run with "edit"/"full") decides.
   autoApproval: process.env.AGENT_AUTO_APPROVAL !== 'false',
   // Approval wait timeout — independent of stale-run threshold (5 min).
   // Unanswered dialog fails the tool after this window (default 2 min).
