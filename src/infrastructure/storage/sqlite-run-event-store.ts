@@ -22,10 +22,17 @@ export class SqliteRunEventStore implements RunEventStore {
       return;
     }
 
+    // Defense-in-depth: callers that skip sequence allocation (e.g. permission
+    // events) must not fall through to the SQLite default 0 — that corrupts
+    // trajectory ordering and breaks cursor replay.
+    const sequence = typeof event.sequence === 'number'
+      ? event.sequence
+      : await this.getNextSequence(event.runId);
+
     this.db.insert(runEvents).values({
       runId: event.runId,
       type: event.type,
-      sequence: event.sequence,
+      sequence,
       data: event.data,
       traceId: event.traceId,
       occurredAt: event.occurredAt,
@@ -43,11 +50,15 @@ export class SqliteRunEventStore implements RunEventStore {
       return;
     }
 
+    const sequence = typeof event.sequence === 'number'
+      ? event.sequence
+      : await this.getNextSequence(event.runId);
+
     this.db.transaction((tx: any) => {
       tx.insert(runEvents).values({
         runId: event.runId,
         type: event.type,
-        sequence: event.sequence,
+        sequence,
         data: event.data,
         traceId: event.traceId,
         occurredAt: event.occurredAt,

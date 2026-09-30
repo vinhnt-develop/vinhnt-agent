@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as path from 'node:path';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { ProjectRepository } from '@/modules/project/repositories/project.repository';
 import { WorkspaceRepository } from '@/modules/workspace/repositories/workspace.repository';
@@ -29,7 +30,8 @@ export class ProjectPathService {
       const workspace = project.workspaceId
         ? await this.workspaceRepository.findById(project.workspaceId)
         : null;
-      return resolveProjectPathFromDeps({ session, project, workspace });
+      const workspaceRoot = this.configService.get<string>('agent.workspaceRoot');
+      return resolveProjectPathFromDeps({ session, project, workspace }, workspaceRoot);
     } catch {
       return undefined;
     }
@@ -37,7 +39,7 @@ export class ProjectPathService {
 
   /**
    * Resolve project path for session, or fall back to workspaceRoot with explicit warn
-   * (never silent monorepo root).
+   * (never silent monorepo root). Always returns an absolute path.
    */
   async resolveOrFallback(sessionId?: string): Promise<string> {
     if (sessionId) {
@@ -51,6 +53,6 @@ export class ProjectPathService {
         ? `No projectPath for session ${sessionId} — falling back to workspaceRoot=${fallback}`
         : `No sessionId — falling back to workspaceRoot=${fallback}`,
     );
-    return fallback;
+    return path.resolve(fallback);
   }
 }
