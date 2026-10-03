@@ -17,12 +17,6 @@ export class CreateWorkspaceDto {
   @IsString()
   @Expose({ name: 'description' })
   description?: string;
-
-  @ApiPropertyOptional({ name: 'directory', type: String, description: 'Filesystem root for this workspace', example: '/home/user/projects' })
-  @IsOptional()
-  @IsString()
-  @Expose({ name: 'directory' })
-  directory?: string;
 }
 
 export class UpdateWorkspaceDto {
@@ -39,12 +33,6 @@ export class UpdateWorkspaceDto {
   @IsString()
   @Expose({ name: 'description' })
   description?: string;
-
-  @ApiPropertyOptional({ name: 'directory', type: String, description: 'Filesystem root for this workspace' })
-  @IsOptional()
-  @IsString()
-  @Expose({ name: 'directory' })
-  directory?: string;
 }
 
 export class WorkspaceResponseDto {
@@ -59,10 +47,6 @@ export class WorkspaceResponseDto {
   @ApiPropertyOptional({ name: 'description', type: String, description: 'Workspace description', example: 'A project for testing' })
   @Expose({ name: 'description' })
   description?: string;
-
-  @ApiPropertyOptional({ name: 'directory', type: String, description: 'Filesystem root for this workspace' })
-  @Expose({ name: 'directory' })
-  directory?: string;
 
   @ApiProperty({ name: 'ownerId', type: String, description: 'Owner ID', example: 'local-user' })
   @Expose({ name: 'ownerId' })

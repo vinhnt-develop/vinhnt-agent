@@ -17,8 +17,8 @@ export const sessions = sqliteTable('sessions', {
   version: text('version'),
   parentId: text('parent_id'),
   metadata: text('metadata', { mode: 'json' }).default({}),
-  createdAt: text('created_at').default(sql`datetime('now')`),
-  updatedAt: text('updated_at').default(sql`datetime('now')`),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
   deletedAt: text('deleted_at'),
 });
 
@@ -36,5 +36,5 @@ export const messages = sqliteTable('messages', {
   provider: text('provider'),
   cost: real('cost').default(0),
   metadata: text('metadata', { mode: 'json' }).default({}),
-  createdAt: text('created_at').default(sql`datetime('now')`),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
 });

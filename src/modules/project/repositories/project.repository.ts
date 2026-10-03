@@ -70,7 +70,7 @@ export class ProjectRepository {
     return this.findById(id);
   }
 
-  async update(id: string, data: { name?: string; description?: string; directory?: string }) {
+  async update(id: string, data: { name?: string; description?: string; directory?: string | null }) {
     const updateData: Record<string, any> = { updatedAt: new Date().toISOString() };
     if (data.name !== undefined) updateData.name = data.name;
     if (data.description !== undefined) updateData.description = data.description;

@@ -3,12 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import * as path from 'node:path';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { ProjectRepository } from '@/modules/project/repositories/project.repository';
-import { WorkspaceRepository } from '@/modules/workspace/repositories/workspace.repository';
 import { resolveProjectPathFromDeps } from './project-path';
 
 /**
  * Shared project path resolution for agent + file/git explorers.
- * Priority: project.directory → workspace.directory + project.name → workspaceRoot fallback (warn).
+ * Priority: project.directory → workspaceRoot fallback (warn).
  */
 @Injectable()
 export class ProjectPathService {
@@ -17,7 +16,6 @@ export class ProjectPathService {
   constructor(
     private readonly sessionRepository: SessionRepository,
     private readonly projectRepository: ProjectRepository,
-    private readonly workspaceRepository: WorkspaceRepository,
     private readonly configService: ConfigService,
   ) {}
 
@@ -27,11 +25,8 @@ export class ProjectPathService {
       if (!session?.projectId) return undefined;
       const project = await this.projectRepository.findById(session.projectId);
       if (!project) return undefined;
-      const workspace = project.workspaceId
-        ? await this.workspaceRepository.findById(project.workspaceId)
-        : null;
       const workspaceRoot = this.configService.get<string>('agent.workspaceRoot');
-      return resolveProjectPathFromDeps({ session, project, workspace }, workspaceRoot);
+      return resolveProjectPathFromDeps({ session, project }, workspaceRoot);
     } catch {
       return undefined;
     }

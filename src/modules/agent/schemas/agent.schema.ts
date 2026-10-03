@@ -9,8 +9,8 @@ export const memories = sqliteTable('memories', {
   key: text('key').notNull(),
   value: text('value').notNull(),
   tags: text('tags', { mode: 'json' }).default([]),
-  createdAt: text('created_at').default(sql`datetime('now')`),
-  updatedAt: text('updated_at').default(sql`datetime('now')`),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
 });
 
 export const runEvents = sqliteTable('run_events', {
@@ -20,7 +20,7 @@ export const runEvents = sqliteTable('run_events', {
   sequence: integer('sequence').notNull().default(0),
   data: text('data', { mode: 'json' }).default({}),
   traceId: text('trace_id'),
-  occurredAt: text('occurred_at').default(sql`datetime('now')`),
+  occurredAt: text('occurred_at').default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_run_events_run_id').on(table.runId),
 ]);
@@ -38,7 +38,7 @@ export const toolExecutions = sqliteTable('tool_executions', {
   status: text('status').default('pending'),
   errorMessage: text('error_message'),
   durationMs: integer('duration_ms').default(0),
-  startedAt: text('started_at').default(sql`datetime('now')`),
+  startedAt: text('started_at').default(sql`(datetime('now'))`),
   completedAt: text('completed_at'),
 }, (table) => [
   index('idx_tool_executions_run_id').on(table.runId),
@@ -67,7 +67,7 @@ export const agentRuns = sqliteTable('agent_runs', {
   metadata: text('metadata', { mode: 'json' }).default({}),
   startedAt: text('started_at'),
   completedAt: text('completed_at'),
-  createdAt: text('created_at').default(sql`datetime('now')`),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_agent_runs_session_id').on(table.sessionId),
 ]);

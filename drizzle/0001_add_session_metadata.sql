@@ -1,5 +1,3 @@
-ALTER TABLE `sessions` ADD `directory` text;--> statement-breakpoint
-ALTER TABLE `sessions` ADD `git_branch` text;--> statement-breakpoint
-ALTER TABLE `sessions` ADD `version` text;--> statement-breakpoint
-ALTER TABLE `sessions` ADD `parent_id` text;--> statement-breakpoint
-ALTER TABLE `messages` ADD `content_blocks` text DEFAULT '[]';
+-- no-op: directory/git_branch/version/parent_id + messages.content_blocks already
+-- exist in 0000 (base regenerated). Migrator rejects comment-only files -> SELECT 1.
+SELECT 1;

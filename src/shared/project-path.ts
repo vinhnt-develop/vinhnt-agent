@@ -7,7 +7,6 @@ export interface ProjectPathDeps {
     workspaceId?: string | null;
     name?: string;
   } | null | undefined;
-  workspace: { directory?: string | null } | null | undefined;
 }
 
 /**
@@ -21,19 +20,30 @@ function absolutizeProjectDir(dir: string, workspaceRoot?: string): string {
 }
 
 /**
+ * Directory values that must be treated as "unset". Filesystem roots ("/", "\")
+ * would otherwise resolve to a drive root and let runs operate on all of C:\;
+ * "." / "./" are equally meaningless as a project root.
+ */
+export function isUsableDirectory(dir?: string | null): dir is string {
+  if (!dir) return false;
+  const t = dir.trim();
+  if (!t) return false;
+  return t !== '/' && t !== '\\' && t !== '.' && t !== './' && t !== '.\\';
+}
+
+/**
  * Shared projectPath resolution for agent controller/gateway.
- * Priority: project.directory → workspace.directory + project.name → undefined.
+ * Priority: project.directory → undefined (caller falls back to workspaceRoot).
  * Relative directories are resolved against `workspaceRoot` when provided.
  */
 export function resolveProjectPathFromDeps(
   deps: ProjectPathDeps,
   workspaceRoot?: string,
 ): string | undefined {
-  const { session, project, workspace } = deps;
+  const { session, project } = deps;
   if (!session?.projectId || !project) return undefined;
-  if (project.directory) return absolutizeProjectDir(project.directory, workspaceRoot);
-  if (project.workspaceId && workspace?.directory) {
-    return absolutizeProjectDir(path.join(workspace.directory, project.name || ''), workspaceRoot);
+  if (isUsableDirectory(project.directory)) {
+    return absolutizeProjectDir(project.directory, workspaceRoot);
   }
   return undefined;
 }

@@ -69,6 +69,23 @@ export class AgentController {
     );
   }
 
+  @Post('cancel')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cancel an active agent run by runId or sessionId' })
+  async cancel(
+    @Body() body: { runId?: string; sessionId?: string },
+  ): Promise<ApiResponse<{ runId?: string; status: string; cancelled: boolean }>> {
+    if (!body?.runId && !body?.sessionId) {
+      throw new BadRequestException('runId or sessionId is required');
+    }
+    const result = await this.agentService.cancelActiveRun(body);
+    return {
+      status: 'success',
+      message: 'Cancel processed.',
+      data: result,
+    };
+  }
+
   @Get('stats')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get agent run statistics' })
@@ -99,7 +116,7 @@ export class AgentController {
         name: 'memory_search',
         description: 'Search past conversations by keyword.',
         risk: 'read',
-        source: 'knowledge',
+        source: 'system',
       });
     }
     return {

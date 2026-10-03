@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { toolExecutions } from '@/modules/agent/schemas/agent.schema';
-import { eq, sql } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 
 @Injectable()
 export class ToolExecutionRepository {
@@ -56,6 +56,20 @@ export class ToolExecutionRepository {
       .from(toolExecutions)
       .where(eq(toolExecutions.id, id))
       .get();
+  }
+
+  /** Close still-running tool rows for a cancelled/failed run. */
+  cancelRunningByRunId(runId: string, status: string, errorMessage: string) {
+    return this.db
+      .update(toolExecutions)
+      .set({ status, errorMessage, completedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(toolExecutions.runId, runId),
+          eq(toolExecutions.status, 'running'),
+        ),
+      )
+      .run();
   }
 
   findByRunId(runId: string) {

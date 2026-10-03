@@ -34,6 +34,7 @@ import { AgentToolkit } from './agent-toolkit';
 import { AgentRunTrackingService } from './agent-run-tracking.service';
 import { AgentKnowledgeService } from '@/modules/knowledge/services/agent-knowledge.service';
 import { extractActualErrorMessage } from '@/shared/error-utils';
+import { resolveSystemToolIds, withSystemTools } from '@/shared/tool-selection';
 import { KernelSettings } from './agent-settings.service';
 
 /**
@@ -144,8 +145,9 @@ export class AgentService {
     string,
     { kernel: any; lastAccess: number }
   >();
-  /** Active run handles keyed by runId for run-specific cancellation. */
-  private activeHandles = new Map<string, { cancel: () => void; isCancelled: boolean }>();
+  /** Active run handles keyed by runId for run-specific cancellation.
+   *  `isCancelled` is a getter on the kernel handle — assignment throws. */
+  private activeHandles = new Map<string, { cancel: () => void; readonly isCancelled: boolean }>();
   private readonly maxKernelCacheSize: number;
   private readonly eventBus = new InMemoryEventBus();
   private readonly tokenMeter = new TokenMeter();
@@ -277,8 +279,9 @@ export class AgentService {
       await this.agentToolkit.loadCustomToolsFromStore().catch(() => undefined);
       const tools = this.agentToolkit.getToolsAsDefinitions() as ToolDefinitionLike[];
 
-      // Register memory search tool — included in pool; kernel selection
-      // filter (ctx.overrides.selection.tools) excludes it when user disables it.
+      // Register memory search tool — included in pool; memory_search is a
+      // system tool and is force-included in every run selection whitelist
+      // (withSystemTools), so it can never be filtered out.
       const memorySearchTool = createMemorySearchTool(this.sessionStore as any);
       const allTools = [...tools, memorySearchTool as any];
 
@@ -429,6 +432,18 @@ export class AgentService {
   }
 
   private buildRequestContext(provider?: string, model?: string, workspaceRoot?: string, selection?: RunAgentInput['selection']) {
+    // System tools are always active: force them into the selection whitelist
+    // so the kernel filter can never drop them (see withSystemTools).
+    const resolvedSelection = withSystemTools(
+      selection,
+      resolveSystemToolIds(
+        this.agentToolkit.getToolsAsDefinitions() as Array<{
+          id?: string;
+          name?: string;
+          metadata?: { source?: string };
+        }>,
+      ),
+    );
     return {
       requestId: crypto.randomUUID() as RequestId,
       traceId: crypto.randomUUID() as TraceId,
@@ -438,7 +453,7 @@ export class AgentService {
         ...(provider ? { provider } : {}),
         ...(model ? { model } : {}),
         ...(workspaceRoot ? { workspaceRoot } : {}),
-        ...(selection ? { selection } : {}),
+        ...(resolvedSelection ? { selection: resolvedSelection } : {}),
       },
     };
   }
@@ -496,6 +511,15 @@ export class AgentService {
       triggerType: 'http',
     });
 
+    // Register the handle so HTTP-path runs are cancellable too — previously
+    // only the WS path registered handles, leaving POST /agent/run runs
+    // unstoppable (LM Studio kept generating after cancel).
+    this.activeHandles.set(runId, handle);
+    handle.completed.then(
+      () => this.activeHandles.delete(runId),
+      () => this.activeHandles.delete(runId),
+    ).catch(() => this.activeHandles.delete(runId));
+
     try {
       this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
 
@@ -506,6 +530,25 @@ export class AgentService {
       this.agentToolkit.recordTimelineEvent(runId, 'step.completed', { step: 0 });
 
       const durationMs = Date.now() - runStartedAt;
+
+      // Cancelled runs must return early with a terminal 'cancelled' status —
+      // falling through would record a bogus 'succeeded' over the cancel.
+      if (result.status === 'cancelled' || (result as { cancelled?: boolean }).cancelled === true) {
+        this.logger.log(`Agent run cancelled for session ${sessionId}`);
+        this.trackingService.completeRun({
+          runId,
+          status: 'cancelled',
+          durationMs,
+          errorMessage: 'Run cancelled by user',
+          stopReason: 'cancelled',
+        });
+        return {
+          runId,
+          status: 'cancelled',
+          output: 'Run cancelled by user',
+          totalSteps: 0,
+        };
+      }
 
       if (result.status === 'failed') {
         const errorMsg = extractActualErrorMessage(result.error || 'Agent run failed');
@@ -687,16 +730,57 @@ export class AgentService {
     }
   }
 
-  async cancelRun(runId: string): Promise<boolean> {
+  async cancelRun(runId: string): Promise<{ cancelled: boolean; status: string }> {
     const handle = this.activeHandles.get(runId);
     if (handle && !handle.isCancelled) {
-      handle.isCancelled = true;
+      // handle.cancel() flips the kernel's internal cancelled flag + aborts the
+      // run (kernel.ts createRunHandle). Writing handle.isCancelled directly
+      // throws (getter-only) and was silently killing the whole cancel flow.
       handle.cancel();
+      // Persist terminal state NOW — if the in-flight LLM call never unwinds
+      // (or the process dies mid-cancel), the run must not stay "running".
+      // The completion path re-writes the same terminal status later.
+      this.trackingService.completeRun({
+        runId,
+        status: 'cancelled',
+        errorMessage: 'Run cancelled by user',
+        stopReason: 'cancelled',
+      });
       this.logger.log(`Cancelled run: ${runId}`);
-      return true;
+      return { cancelled: true, status: 'cancelled' };
     }
-    this.logger.warn(`No active handle found for run: ${runId}`);
-    return false;
+
+    const status = this.trackingService.getRunStatus(runId);
+    if (status === 'running' || !status) {
+      // No live handle but the row still says running (lost handle registry /
+      // zombie row) — persist a terminal status so the UI is never stuck.
+      this.trackingService.completeRun({
+        runId,
+        status: 'cancelled',
+        errorMessage: 'Run cancelled by user',
+        stopReason: 'cancelled',
+      });
+      this.logger.warn(`No active handle for run ${runId} — persisted status set to cancelled`);
+      return { cancelled: true, status: 'cancelled' };
+    }
+    this.logger.warn(`Run ${runId} already ${status} — cannot cancel`);
+    return { cancelled: false, status };
+  }
+
+  /** Cancel by runId, falling back to the session's active run. */
+  async cancelActiveRun(input: {
+    runId?: string;
+    sessionId?: string;
+  }): Promise<{ cancelled: boolean; status: string; runId?: string }> {
+    let runId = input.runId;
+    if (!runId && input.sessionId) {
+      const active = this.trackingService.findActiveRunForSession(input.sessionId);
+      if (!active) return { cancelled: false, status: 'idle' };
+      runId = active.id;
+    }
+    if (!runId) return { cancelled: false, status: 'idle' };
+    const result = await this.cancelRun(runId);
+    return { ...result, runId };
   }
 
   async getSessionMessages(sessionId: string) {

@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "05b0ce28-72b8-4ee9-8ebe-38eb5b4528aa",
-  "prevId": "12fc5f54-2cab-4f07-a438-ca0a5b55c5da",
+  "id": "c47f8493-c38d-4a0c-a124-137e9ebf48ae",
+  "prevId": "05b0ce28-72b8-4ee9-8ebe-38eb5b4528aa",
   "tables": {
     "agent_runs": {
       "name": "agent_runs",
@@ -365,6 +365,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "tool_call_id": {
+          "name": "tool_call_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "tool_name": {
           "name": "tool_name",
           "type": "text",
@@ -421,13 +428,6 @@
         },
         "completed_at": {
           "name": "completed_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "tool_call_id": {
-          "name": "tool_call_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -644,6 +644,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "directory": {
+          "name": "directory",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "is_active": {
           "name": "is_active",
           "type": "integer",
@@ -670,13 +677,6 @@
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "directory": {
-          "name": "directory",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
@@ -1040,13 +1040,6 @@
         },
         "deleted_at": {
           "name": "deleted_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "directory": {
-          "name": "directory",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

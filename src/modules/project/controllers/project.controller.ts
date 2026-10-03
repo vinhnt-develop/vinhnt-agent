@@ -15,7 +15,12 @@ import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
 import { ProjectService } from '../services/project.service';
-import { CreateProjectDto, UpdateProjectDto, ProjectResponseDto, ListProjectsDto } from '../dto';
+import {
+  CreateProjectDto,
+  UpdateProjectDto,
+  ProjectResponseDto,
+  ListProjectsDto,
+} from '../dto';
 
 @ApiTags('Project')
 @ApiExtraModels(CreateProjectDto, UpdateProjectDto, ProjectResponseDto)

@@ -267,7 +267,10 @@ export class AgentGateway
         completedStatus === 'failed' ||
         trackedError;
 
-      if (isCancelled && !hasError) {
+      // User cancel wins over hasError: an aborted run unwinds with an
+      // AbortError ("Run cancelled"), which previously flipped the status to
+      // 'failed' right after cancelRun persisted 'cancelled'.
+      if (isCancelled) {
         this.logger.log(
           `Run CANCELLED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount}`,
         );
@@ -385,27 +388,40 @@ export class AgentGateway
   @SubscribeMessage('cancel')
   async handleCancel(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { runId: string },
+    @MessageBody() data: { runId?: string; sessionId?: string },
   ) {
     try {
-      this.logger.log(`Cancel requested by ${client.id} for run ${data.runId}`);
-      const sessionId = this.runToSession.get(data.runId);
-      const cancelled = await this.agentService.cancelRun(data.runId);
-      if (cancelled) {
-        client.emit('run:cancelled', { runId: data.runId, sessionId });
+      this.logger.log(
+        `Cancel requested by ${client.id} for ${data.runId ? `run ${data.runId}` : `session ${data.sessionId}`}`,
+      );
+      const result = await this.agentService.cancelActiveRun({
+        runId: data.runId,
+        sessionId: data.sessionId,
+      });
+      const runId = result.runId ?? data.runId;
+      const sessionId = (runId ? this.runToSession.get(runId) : undefined) ?? data.sessionId;
+
+      if (result.status === 'cancelled') {
+        client.emit('run:cancelled', { runId, sessionId });
+      } else if (result.status === 'succeeded' || result.status === 'failed') {
+        // Answer from persisted status so the client gets an honest,
+        // idempotent reply instead of a scary error after a successful Stop.
+        client.emit('run:error', {
+          error: `Run already ${result.status} — cannot cancel`,
+          runId,
+          sessionId,
+        });
       } else {
-        // Handle not found — do NOT claim cancelled (run may already be done
-        // or never started). Surface error so client doesn't show false success.
         client.emit('run:error', {
           error: 'Run not found or already completed — cannot cancel',
-          runId: data.runId,
+          runId,
           sessionId,
         });
       }
     } catch (error) {
       const errorMsg = extractActualErrorMessage(error);
       this.logger.error(`Cancel failed for run ${data.runId}: ${errorMsg}`);
-      client.emit('run:error', { error: errorMsg, runId: data.runId });
+      client.emit('run:error', { error: errorMsg, runId: data.runId, sessionId: data.sessionId });
     }
   }
 

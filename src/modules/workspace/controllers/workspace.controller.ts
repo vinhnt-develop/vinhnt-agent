@@ -33,7 +33,6 @@ export class WorkspaceController {
     await this.workspaceService.create({
       name: dto.name,
       description: dto.description,
-      directory: dto.directory,
       ownerId: userId,
     });
     return formatResponse.single(null, null, 'Workspace created successfully.');

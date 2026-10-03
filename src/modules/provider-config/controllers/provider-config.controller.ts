@@ -26,7 +26,8 @@ import {
   ProviderModelDto,
   ProviderModelsGroupDto,
 } from '../dto/supported-providers.dto';
-import { PROVIDER_REGISTRY, getProviderDefinition } from '../providers/provider-registry';
+import { PROVIDER_REGISTRY, getProviderDefinition, type ProviderDefinition } from '../providers/provider-registry';
+import { resolveApiKeyRef } from '@/infrastructure/config/json-config-store';
 
 @ApiTags('Provider Configs')
 @ApiExtraModels(
@@ -40,6 +41,29 @@ import { PROVIDER_REGISTRY, getProviderDefinition } from '../providers/provider-
 @Controller({ path: 'providers', version: '1' })
 export class ProviderConfigController {
   constructor(private readonly providerConfigService: ProviderConfigService) {}
+
+  private missingApiKeyMessage(definition: ProviderDefinition, apiKeyRef: string | null): string {
+    if (apiKeyRef && apiKeyRef.startsWith('env:')) {
+      const varName = apiKeyRef.slice(4).trim();
+      return (
+        `No API key resolved: "${apiKeyRef}" points to environment variable ${varName}, but it is empty. ` +
+        `Paste the key directly in Settings -> Providers, or define ${varName} in .env and restart the agent.`
+      );
+    }
+    return `Missing API key for provider ${definition.name}: add it in Settings -> Providers.`;
+  }
+
+  private async extractUpstreamError(response: Response): Promise<string | null> {
+    try {
+      const body: unknown = await response.json();
+      const err = (body as { error?: unknown })?.error;
+      const detail =
+        typeof err === 'string' ? err : typeof (err as { message?: unknown })?.message === 'string' ? (err as { message: string }).message : (body as { message?: unknown })?.message;
+      return typeof detail === 'string' && detail.length > 0 ? detail.slice(0, 300) : null;
+    } catch {
+      return null;
+    }
+  }
 
   @Get('supported')
   @HttpCode(HttpStatus.OK)
@@ -70,6 +94,18 @@ export class ProviderConfigController {
       const modelsUrl = definition.nativeModelsUrl || `${url}${definition.modelsEndpoint}`;
 
       try {
+        if (definition.requiresApiKey && !config.hasApiKey) {
+          results.push({
+            provider: config.provider,
+            providerName: definition.name,
+            configured: true,
+            isActive: config.isActive,
+            models: [],
+            error: this.missingApiKeyMessage(definition, config.apiKeyRef),
+          });
+          continue;
+        }
+
         const headers: Record<string, string> = {};
         if (config.apiKey && config.provider !== 'google') {
           headers['Authorization'] = `Bearer ${config.apiKey}`;
@@ -85,13 +121,14 @@ export class ProviderConfigController {
           signal: AbortSignal.timeout(10_000),
         });
         if (!response.ok) {
+          const detail = await this.extractUpstreamError(response);
           results.push({
             provider: config.provider,
             providerName: definition.name,
             configured: true,
             isActive: config.isActive,
             models: [],
-            error: `Failed to fetch models: ${response.status}`,
+            error: `Failed to fetch models: ${response.status}${detail ? ` — ${detail}` : ''}`,
           });
           continue;
         }
@@ -141,20 +178,32 @@ export class ProviderConfigController {
       || `${url}${definition.modelsEndpoint}`;
 
     try {
-      const headers: Record<string, string> = {};
-      if (apiKey) {
-        if (provider !== 'google') {
-          headers['Authorization'] = `Bearer ${apiKey}`;
-        }
+      const headerKey = apiKey ? resolveApiKeyRef(apiKey) : null;
+      const stored = headerKey ? null : await this.providerConfigService.findSingleByProvider(provider);
+      const effectiveKey = headerKey ?? stored?.apiKey ?? null;
+
+      if (definition.requiresApiKey && !effectiveKey) {
+        const ref = headerKey === null && apiKey ? apiKey : stored?.apiKeyRef ?? null;
+        return formatResponse.array(ProviderModelDto, [], this.missingApiKeyMessage(definition, ref));
       }
 
-      const fetchUrl = provider === 'google' && apiKey
-        ? `${modelsUrl}?key=${apiKey}`
+      const headers: Record<string, string> = {};
+      if (effectiveKey && provider !== 'google') {
+        headers['Authorization'] = `Bearer ${effectiveKey}`;
+      }
+
+      const fetchUrl = provider === 'google' && effectiveKey
+        ? `${modelsUrl}?key=${effectiveKey}`
         : modelsUrl;
 
       const response = await fetch(fetchUrl, { method: 'GET', headers });
       if (!response.ok) {
-        return formatResponse.array(ProviderModelDto, [], `Failed to fetch models: ${response.status}`);
+        const detail = await this.extractUpstreamError(response);
+        return formatResponse.array(
+          ProviderModelDto,
+          [],
+          `Failed to fetch models: ${response.status}${detail ? ` — ${detail}` : ''}`,
+        );
       }
 
       const data = await response.json();

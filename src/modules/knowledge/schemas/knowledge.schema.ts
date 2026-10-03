@@ -13,8 +13,8 @@ export const knowledgeEntries = sqliteTable('knowledge', {
   contentHash: text('content_hash'),
   filePath: text('file_path'),
   isEditable: integer('is_editable', { mode: 'boolean' }).default(true),
-  createdAt: text('created_at').default(sql`datetime('now')`),
-  updatedAt: text('updated_at').default(sql`datetime('now')`),
+  createdAt: text('created_at').default(sql`(datetime('now'))`),
+  updatedAt: text('updated_at').default(sql`(datetime('now'))`),
   deletedAt: text('deleted_at'),
 }, (table) => [
   index('idx_knowledge_source').on(table.source),

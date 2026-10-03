@@ -163,7 +163,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {
@@ -233,7 +233,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -241,7 +241,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {},
@@ -317,7 +317,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {
@@ -417,7 +417,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "completed_at": {
           "name": "completed_at",
@@ -552,7 +552,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -560,7 +560,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "deleted_at": {
           "name": "deleted_at",
@@ -651,7 +651,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -659,7 +659,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "deleted_at": {
           "name": "deleted_at",
@@ -796,7 +796,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         }
       },
       "indexes": {},
@@ -931,7 +931,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -939,7 +939,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "deleted_at": {
           "name": "deleted_at",
@@ -1021,7 +1021,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "updated_at": {
           "name": "updated_at",
@@ -1029,7 +1029,7 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false,
-          "default": "datetime('now')"
+          "default": "(datetime('now'))"
         },
         "deleted_at": {
           "name": "deleted_at",

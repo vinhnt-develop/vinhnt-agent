@@ -7,12 +7,17 @@ import {
 } from '@/infrastructure/config/json-config-store';
 import { PROVIDERS_CONFIG } from '@/infrastructure/config/config.module';
 
-export type ProviderConfigWithApiKey = ProviderJsonConfig & { hasApiKey: boolean };
+export type ProviderConfigWithApiKey = ProviderJsonConfig & {
+  hasApiKey: boolean;
+  /** Raw stored value (e.g. `env:GOOGLE_API_KEY`) before resolution — for error messages only. */
+  apiKeyRef: string | null;
+};
 
 function enrichHasApiKey(config: ProviderJsonConfig): ProviderConfigWithApiKey {
   const apiKey = resolveApiKeyRef(config.apiKey);
   return {
     ...config,
+    apiKeyRef: config.apiKey ?? null,
     apiKey,
     hasApiKey: !!apiKey && apiKey.length > 0,
   };

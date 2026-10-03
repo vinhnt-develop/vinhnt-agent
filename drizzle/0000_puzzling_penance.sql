@@ -15,7 +15,7 @@ CREATE TABLE `agent_runs` (
 	`metadata` text DEFAULT '{}',
 	`started_at` text,
 	`completed_at` text,
-	`created_at` text DEFAULT datetime('now')
+	`created_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
 CREATE TABLE `credentials` (
@@ -26,8 +26,8 @@ CREATE TABLE `credentials` (
 	`value_encrypted` text NOT NULL,
 	`metadata` text DEFAULT '{}',
 	`expires_at` text,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );
 --> statement-breakpoint
@@ -43,8 +43,8 @@ CREATE TABLE `mcp_servers` (
 	`is_enabled` integer DEFAULT true,
 	`tool_count` integer DEFAULT 0,
 	`last_connected_at` text,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );
 --> statement-breakpoint
@@ -57,8 +57,8 @@ CREATE TABLE `memories` (
 	`key` text NOT NULL,
 	`value` text NOT NULL,
 	`tags` text DEFAULT '[]',
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
@@ -73,8 +73,8 @@ CREATE TABLE `provider_configs` (
 	`pricing` text DEFAULT '{}',
 	`is_active` integer DEFAULT true,
 	`is_default` integer DEFAULT false,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );
 --> statement-breakpoint
@@ -85,7 +85,7 @@ CREATE TABLE `run_events` (
 	`sequence` integer DEFAULT 0 NOT NULL,
 	`data` text DEFAULT '{}',
 	`trace_id` text,
-	`occurred_at` text DEFAULT datetime('now')
+	`occurred_at` text DEFAULT (datetime('now'))
 );
 --> statement-breakpoint
 CREATE TABLE `tool_executions` (
@@ -99,7 +99,7 @@ CREATE TABLE `tool_executions` (
 	`status` text DEFAULT 'pending',
 	`error_message` text,
 	`duration_ms` integer DEFAULT 0,
-	`started_at` text DEFAULT datetime('now'),
+	`started_at` text DEFAULT (datetime('now')),
 	`completed_at` text,
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE no action
 );
@@ -113,8 +113,8 @@ CREATE TABLE `custom_tools` (
 	`handler_config` text DEFAULT '{}',
 	`timeout_ms` integer DEFAULT 30000,
 	`is_active` integer DEFAULT true,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );
 --> statement-breakpoint
@@ -131,8 +131,8 @@ CREATE TABLE `knowledge` (
 	`content_hash` text,
 	`file_path` text,
 	`is_editable` integer DEFAULT true,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );
 --> statement-breakpoint
@@ -152,9 +152,9 @@ CREATE TABLE `plugin_configs` (
 	`local_path` text,
 	`config` text DEFAULT '{}',
 	`is_enabled` integer DEFAULT true,
-	`installed_at` text DEFAULT datetime('now'),
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`installed_at` text DEFAULT (datetime('now')),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );
 --> statement-breakpoint
@@ -167,8 +167,8 @@ CREATE TABLE `projects` (
 	`description` text,
 	`path` text,
 	`is_active` integer DEFAULT true,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text,
 	FOREIGN KEY (`workspace_id`) REFERENCES `workspaces`(`id`) ON UPDATE no action ON DELETE no action
 );
@@ -186,7 +186,7 @@ CREATE TABLE `messages` (
 	`provider` text,
 	`cost` real DEFAULT 0,
 	`metadata` text DEFAULT '{}',
-	`created_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
 	FOREIGN KEY (`session_id`) REFERENCES `sessions`(`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
@@ -201,8 +201,8 @@ CREATE TABLE `sessions` (
 	`input_tokens` integer DEFAULT 0,
 	`output_tokens` integer DEFAULT 0,
 	`metadata` text DEFAULT '{}',
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text,
 	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE no action
 );
@@ -217,8 +217,8 @@ CREATE TABLE `tool_configs` (
 	`config` text DEFAULT '{}',
 	`is_enabled` integer DEFAULT true,
 	`manifest` text,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );
 --> statement-breakpoint
@@ -230,7 +230,7 @@ CREATE TABLE `workspaces` (
 	`description` text,
 	`owner_id` text NOT NULL,
 	`is_active` integer DEFAULT false,
-	`created_at` text DEFAULT datetime('now'),
-	`updated_at` text DEFAULT datetime('now'),
+	`created_at` text DEFAULT (datetime('now')),
+	`updated_at` text DEFAULT (datetime('now')),
 	`deleted_at` text
 );

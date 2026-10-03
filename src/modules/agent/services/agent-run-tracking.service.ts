@@ -6,6 +6,7 @@ interface PendingToolExecution {
   id: string;
   startedAt: number;
   toolName: string;
+  runId?: string;
 }
 
 @Injectable()
@@ -32,6 +33,16 @@ export class AgentRunTrackingService {
     this.agentRunRepository.cleanupStaleRuns(sessionId);
     const active = this.agentRunRepository.findActiveBySessionId(sessionId);
     return active ? { id: active.id } : null;
+  }
+
+  /** Persisted status of a run ('running' | 'succeeded' | 'failed' | 'cancelled' | ...). */
+  getRunStatus(runId: string): string | undefined {
+    try {
+      return this.agentRunRepository.findById(runId)?.status ?? undefined;
+    } catch (error) {
+      this.logger.warn(`Failed to read run status for ${runId}: ${error}`);
+      return undefined;
+    }
   }
 
   startRun(data: {
@@ -117,6 +128,25 @@ export class AgentRunTrackingService {
       }
 
       this.agentRunRepository.update(data.runId, updatePayload as never);
+
+      // A cancelled run can leave tool rows stuck at 'running' (the tool
+      // never resumes to emit tool.completed) — close them so the timeline
+      // doesn't show permanently pulsing steps.
+      if (data.status === 'cancelled' || data.status === 'failed') {
+        try {
+          this.toolExecutionRepository.cancelRunningByRunId(
+            data.runId,
+            data.status === 'cancelled' ? 'cancelled' : 'failed',
+            data.status === 'cancelled' ? 'Run cancelled by user' : 'Run failed',
+          );
+        } catch (error) {
+          this.logger.warn(`Failed to close running tool rows for ${data.runId}: ${error}`);
+        }
+        for (const [key, entry] of this.pendingToolExecutions) {
+          if (entry.runId === data.runId) this.pendingToolExecutions.delete(key);
+        }
+      }
+
       this.runSessions.delete(data.runId);
       this.runToolCounts.delete(data.runId);
       this.logger.debug(`Agent run completed: ${data.runId} status=${data.status}`);
@@ -157,6 +187,7 @@ export class AgentRunTrackingService {
         id,
         startedAt: Date.now(),
         toolName: data.toolName,
+        runId: data.runId,
       });
       this.logger.debug(`Tool execution started: ${data.toolName} id=${id}`);
       return id;
