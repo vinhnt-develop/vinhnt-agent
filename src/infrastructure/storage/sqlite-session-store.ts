@@ -36,12 +36,18 @@ function toSession(row: any): Session {
 
 function toMessage(row: any): Message {
   const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : (row.metadata || {});
+  const blocksRaw = row.contentBlocks ?? row.content_blocks;
+  const contentBlocks = typeof blocksRaw === 'string' ? JSON.parse(blocksRaw || '[]') : blocksRaw;
   return {
     id: row.id as MessageId,
     sessionId: (row.sessionId || row.session_id) as SessionId,
     role: row.role,
     content: row.content || '',
     toolCallId: (row.toolCallId || row.tool_call_id) as ToolCallId | undefined,
+    // P1.2: assistant toolCalls live in the metadata bag; multimodal parts
+    // in the content_blocks column — both round-trip into loadSessionHistory.
+    toolCalls: Array.isArray(meta.toolCalls) ? meta.toolCalls : undefined,
+    contentBlocks: Array.isArray(contentBlocks) && contentBlocks.length > 0 ? contentBlocks : undefined,
     tokens: {
       input: row.inputTokens ?? row.input_tokens ?? 0,
       output: row.outputTokens ?? row.output_tokens ?? 0,
@@ -145,13 +151,19 @@ export class SqliteSessionStore implements SessionStore {
       role: msg.role,
       content: msg.content || '',
       toolCallId: msg.toolCallId,
+      // P1.2: structured parts go to the dedicated column; assistant
+      // toolCalls ride in the metadata JSON (no schema migration needed).
+      contentBlocks: msg.contentBlocks as never,
       inputTokens: msg.tokens?.input || 0,
       outputTokens: msg.tokens?.output || 0,
       reasoningTokens: msg.tokens?.reasoning || 0,
       model: msg.model,
       provider: msg.provider,
       cost: msg.cost,
-      metadata: { admittedSeq: msg.admittedSeq },
+      metadata: {
+        admittedSeq: msg.admittedSeq,
+        ...(msg.toolCalls && msg.toolCalls.length > 0 ? { toolCalls: msg.toolCalls } : {}),
+      },
       createdAt: now,
     }).run();
 
@@ -161,6 +173,9 @@ export class SqliteSessionStore implements SessionStore {
       role: msg.role,
       content: msg.content || '',
       toolCallId: msg.toolCallId as ToolCallId | undefined,
+      // Copies: AddMessageOptions fields are readonly, Message (zod-infer) is not.
+      toolCalls: msg.toolCalls ? [...msg.toolCalls] : undefined,
+      contentBlocks: msg.contentBlocks ? [...msg.contentBlocks] : undefined,
       tokens: msg.tokens,
       model: msg.model,
       provider: msg.provider,
