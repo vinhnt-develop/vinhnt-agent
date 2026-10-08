@@ -276,6 +276,7 @@ export class AgentService {
     settings?: Partial<KernelSettings>,
     permissionModeOverride?: 'ask' | 'edit' | 'full',
     sessionId?: string,
+    projectPath?: string,
   ): Promise<any> {
     const permissionMode = this.resolvePermissionMode(settings, permissionModeOverride);
     const cacheKey = this.getKernelCacheKey(providerName, modelId);
@@ -285,7 +286,12 @@ export class AgentService {
     // mutable conversation state, so sharing it across sessions would leak
     // history between them. The settings-eviction prefix below still matches.
     const sessionSegment = sessionId ? `|sid:${sessionId}` : '';
-    const fullCacheKey = settingsHash ? `${cacheKey}${sessionSegment}|${settingsHash}${permissionKey}` : `${cacheKey}${sessionSegment}${permissionKey}`;
+    // P0-6: instructions/workspace context sources and kernelConfig.workspaceRoot
+    // are BOUND at construction — a kernel built for one project root must not
+    // be reused for another (system prompt cwd would disagree with tool cwd).
+    const root = projectPath ?? this.configService.get<string>('agent.workspaceRoot', '.');
+    const rootSegment = `|root:${root}`;
+    const fullCacheKey = settingsHash ? `${cacheKey}${sessionSegment}${rootSegment}|${settingsHash}${permissionKey}` : `${cacheKey}${sessionSegment}${rootSegment}${permissionKey}`;
 
     const cached = this.kernels.get(fullCacheKey);
     if (cached) {
@@ -332,7 +338,9 @@ export class AgentService {
       await this.agentRegistry.register(codeReviewer);
 
       const provider = await this.providerFactory.getModelProvider(providerName);
-      const workspaceRoot = this.configService.get<string>('agent.workspaceRoot', '.');
+      // P0-6: bind context sources to the session's project root (falls back
+      // to the global workspaceRoot) — NOT always the global config value.
+      const workspaceRoot = root;
 
       // Per-session runtime state — fed into the kernel so the run loop joins
       // prior-turn history (P0-1). Hydrated from the DB transcript below.
@@ -525,7 +533,7 @@ export class AgentService {
     const runStartedAt = Date.now();
     // Permission mode: per-run composer choice > saved kernel settings >
     // AGENT_AUTO_APPROVAL — resolved inside getKernel.
-    const kernel = await this.getKernel(model, provider, settings, input.permissionMode, sessionId);
+      const kernel = await this.getKernel(model, provider, settings, input.permissionMode, sessionId, projectPath);
     const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
 
     // Fallback: no projectPath → workspaceRoot with explicit warn (not silent monorepo root).
@@ -731,6 +739,7 @@ export class AgentService {
         settings,
         input.permissionMode,
         sessionId,
+        projectPath,
       );
       const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
       if (!projectPath) {
