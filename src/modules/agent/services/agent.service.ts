@@ -24,6 +24,7 @@ import type {
 import { InMemoryEventBus } from '@vinhnt-sdk/event';
 import { TokenMeter } from '@vinhnt-sdk/llm';
 import { createMemorySearchTool, ContextCompressor } from '@vinhnt-sdk/knowledge';
+import { InMemorySessionState, loadSessionHistory } from '@vinhnt-sdk/session';
 import { SqliteSessionStore } from '@/infrastructure/storage/sqlite-session-store';
 import { SqliteMemoryStore } from '@/infrastructure/storage/sqlite-memory-store';
 import { SqliteRunEventStore } from '@/infrastructure/storage/sqlite-run-event-store';
@@ -143,7 +144,7 @@ export class AgentService {
   private readonly logger = new Logger(AgentService.name);
   private kernels = new Map<
     string,
-    { kernel: any; lastAccess: number }
+    { kernel: any; sessionState?: InMemorySessionState; lastAccess: number }
   >();
   /** Active run handles keyed by runId for run-specific cancellation.
    *  `isCancelled` is a getter on the kernel handle — assignment throws. */
@@ -245,21 +246,53 @@ export class AgentService {
     return override ?? settings?.permissionMode ?? 'ask';
   }
 
+  /**
+   * Reset the kernel's SessionRuntimeState from the persisted transcript so a
+   * new run receives prior-turn history instead of a fresh single-turn array.
+   * Step/tool counters are cleared: they describe ONE run, and a hydrated
+   * state must start the run at step 0 (otherwise maxSteps is pre-consumed).
+   */
+  private async hydrateSessionState(
+    sessionState: InMemorySessionState,
+    sessionId: string,
+  ): Promise<void> {
+    try {
+      const history = await loadSessionHistory(this.sessionStore, sessionId);
+      sessionState.resetMessages(history);
+      sessionState.step = 0;
+      sessionState.toolCallCount = 0;
+      sessionState.isRunning = false;
+    } catch (error) {
+      // Degrade to whatever state is already in memory — never block the run.
+      this.logger.error(
+        `Failed to hydrate history for session ${sessionId}: ${extractActualErrorMessage(error)}`,
+      );
+    }
+  }
+
   private async getKernel(
     modelId?: string,
     providerName?: string,
     settings?: Partial<KernelSettings>,
     permissionModeOverride?: 'ask' | 'edit' | 'full',
+    sessionId?: string,
   ): Promise<any> {
     const permissionMode = this.resolvePermissionMode(settings, permissionModeOverride);
     const cacheKey = this.getKernelCacheKey(providerName, modelId);
     const settingsHash = this.getSettingsHash(settings);
     const permissionKey = `|pm:${permissionMode}`;
-    const fullCacheKey = settingsHash ? `${cacheKey}|${settingsHash}${permissionKey}` : `${cacheKey}${permissionKey}`;
+    // One kernel (and one SessionRuntimeState) per session: sessionState is
+    // mutable conversation state, so sharing it across sessions would leak
+    // history between them. The settings-eviction prefix below still matches.
+    const sessionSegment = sessionId ? `|sid:${sessionId}` : '';
+    const fullCacheKey = settingsHash ? `${cacheKey}${sessionSegment}|${settingsHash}${permissionKey}` : `${cacheKey}${sessionSegment}${permissionKey}`;
 
     const cached = this.kernels.get(fullCacheKey);
     if (cached) {
       cached.lastAccess = Date.now();
+      if (cached.sessionState && sessionId) {
+        await this.hydrateSessionState(cached.sessionState, sessionId);
+      }
       return cached.kernel;
     }
 
@@ -301,10 +334,18 @@ export class AgentService {
       const provider = await this.providerFactory.getModelProvider(providerName);
       const workspaceRoot = this.configService.get<string>('agent.workspaceRoot', '.');
 
+      // Per-session runtime state — fed into the kernel so the run loop joins
+      // prior-turn history (P0-1). Hydrated from the DB transcript below.
+      const sessionState = new InMemorySessionState();
+      if (sessionId) {
+        await this.hydrateSessionState(sessionState, sessionId);
+      }
+
       const kernelConfig: AgentKernelConfig = {
         model: provider,
         store: this.runEventStore,
         sessionStore: this.sessionStore,
+        sessionState,
         eventBus: this.eventBus,
         tools: allTools.length > 0 ? (allTools as any) : undefined,
 
@@ -422,7 +463,7 @@ export class AgentService {
       };
 
       const kernel = new AgentKernel(kernelConfig);
-      this.kernels.set(fullCacheKey, { kernel, lastAccess: Date.now() });
+      this.kernels.set(fullCacheKey, { kernel, sessionState, lastAccess: Date.now() });
       this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${allTools.length} workspace=${workspaceRoot}`);
       return kernel;
     } catch (error) {
@@ -484,7 +525,7 @@ export class AgentService {
     const runStartedAt = Date.now();
     // Permission mode: per-run composer choice > saved kernel settings >
     // AGENT_AUTO_APPROVAL — resolved inside getKernel.
-    const kernel = await this.getKernel(model, provider, settings, input.permissionMode);
+    const kernel = await this.getKernel(model, provider, settings, input.permissionMode, sessionId);
     const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
 
     // Fallback: no projectPath → workspaceRoot with explicit warn (not silent monorepo root).
@@ -689,6 +730,7 @@ export class AgentService {
         provider,
         settings,
         input.permissionMode,
+        sessionId,
       );
       const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
       if (!projectPath) {

@@ -79,8 +79,8 @@ importers:
         specifier: ^0.4.2
         version: 0.4.2
       '@vinhnt-sdk/session':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.4.4
+        version: 0.4.4
       '@vinhnt-sdk/step-executor':
         specifier: ^0.6.4
         version: 0.6.4
@@ -1901,6 +1901,10 @@ packages:
 
   '@vinhnt-sdk/session@0.4.2':
     resolution: {integrity: sha512-vq+Wbhpf1NQ5YCDPPJkfG+67LEOMbq52VIRu5H24b0kvZ/JWSPuR2sO3gUm0LfKQbcvoYn+VwXdGNI7dHTjWQA==}
+    engines: {node: '>=20'}
+
+  '@vinhnt-sdk/session@0.4.4':
+    resolution: {integrity: sha512-LYz9fE/GbigwGZn/wcjFAbmWQevmbOw+QNFS13C/Zb45cRdgiiO2dCjgoDkn64OteevJe+UxbdEAd+apiYtWmw==}
     engines: {node: '>=20'}
 
   '@vinhnt-sdk/step-executor@0.4.2':
@@ -5865,6 +5869,10 @@ snapshots:
       '@vinhnt-sdk/guard': 0.4.2
 
   '@vinhnt-sdk/session@0.4.2':
+    dependencies:
+      '@vinhnt-sdk/schema': 0.5.12
+
+  '@vinhnt-sdk/session@0.4.4':
     dependencies:
       '@vinhnt-sdk/schema': 0.5.12
 

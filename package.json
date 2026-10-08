@@ -46,7 +46,7 @@
     "@vinhnt-sdk/sandbox": "^0.4.2",
     "@vinhnt-sdk/schema": "^0.5.12",
     "@vinhnt-sdk/security": "^0.4.2",
-    "@vinhnt-sdk/session": "^0.4.2",
+    "@vinhnt-sdk/session": "^0.4.4",
     "@vinhnt-sdk/step-executor": "^0.6.4",
     "@vinhnt-sdk/tools": "0.4.10",
     "@vinhnt-sdk/trace": "^0.4.3",
