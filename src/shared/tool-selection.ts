@@ -18,7 +18,6 @@ export interface SelectionToolEntry {
 export interface RunSelection {
   tools?: SelectionToolEntry[];
   knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
-  plugins?: string[];
 }
 
 export function isSelectableToolSource(id: string, source?: string): boolean {

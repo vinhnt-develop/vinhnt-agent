@@ -5,8 +5,8 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@vinhnt-sdk/tools': 0.4.10
-  '@vinhnt-sdk/schema': 0.5.13
+  '@vinhnt-sdk/tools': 0.11.0
+  '@vinhnt-sdk/schema': 0.11.0
 
 importers:
 
@@ -37,59 +37,62 @@ importers:
         specifier: ^11.2.3
         version: 11.2.5(@nestjs/common@11.2.5(class-transformer@0.5.1)(class-validator@0.15.1)(reflect-metadata@0.2.2)(rxjs@7.8.2)(supports-color@8.1.1))(@nestjs/core@11.2.5)(@nestjs/platform-socket.io@11.2.5)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@vinhnt-sdk/config':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/core':
-        specifier: ^0.10.8
-        version: 0.10.8
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/event':
-        specifier: ^0.4.5
-        version: 0.4.5
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/guard':
-        specifier: ^0.4.4
-        version: 0.4.4
+        specifier: ^0.11.0
+        version: 0.11.0
+      '@vinhnt-sdk/guardrails':
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/knowledge':
-        specifier: ^0.4.4
-        version: 0.4.4(@vinhnt-sdk/tools@0.4.10)
+        specifier: ^0.11.0
+        version: 0.11.0(@vinhnt-sdk/tools@0.11.0)
       '@vinhnt-sdk/llm':
-        specifier: ^0.5.10
-        version: 0.5.10
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/lsp':
-        specifier: ^0.4.3
-        version: 0.4.3
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/mcp':
-        specifier: 0.4.5
-        version: 0.4.5
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/permission':
-        specifier: ^0.5.1
-        version: 0.5.1
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/plugin':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/provider-openai-compatible':
-        specifier: ^0.4.6
-        version: 0.4.6
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/sandbox':
-        specifier: ^0.4.2
-        version: 0.4.2
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/schema':
-        specifier: 0.5.13
-        version: 0.5.13
+        specifier: 0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/security':
         specifier: ^0.4.2
         version: 0.4.2
       '@vinhnt-sdk/session':
-        specifier: ^0.4.5
-        version: 0.4.5
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/step-executor':
-        specifier: ^0.6.5
-        version: 0.6.5
+        specifier: ^0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/tools':
-        specifier: 0.4.10
-        version: 0.4.10
+        specifier: 0.11.0
+        version: 0.11.0
       '@vinhnt-sdk/trace':
-        specifier: ^0.4.3
-        version: 0.4.3
+        specifier: ^0.11.0
+        version: 0.11.0
       better-sqlite3:
         specifier: ^13.0.3
         version: 13.0.3
@@ -1801,130 +1804,93 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@vinhnt-sdk/config@0.4.2':
-    resolution: {integrity: sha512-lozZ4Izq8LSFFI9FuQqCFOrjUaBuQ0HA3BOvf+72kVJb5GSidnIaUANhoHwqPyXwmRd1KnZFPmqnCgvt6WbA3Q==}
+  '@vinhnt-sdk/config@0.11.0':
+    resolution: {integrity: sha512-pNI6SpPIZjeMjx7gmvrnRj1PkQ0bMjb+PhRKF1InepE60965nJXEF0tebO+jIR05gOG3vpxNMnteRaKrLSLwgg==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/core@0.10.8':
-    resolution: {integrity: sha512-cjEV1nAg6eXt2D99ykDUBSzNqt1GYNUIk2JUvoBFaVXYWb7awNhIq8gO9XunXlNbi6KkLtdfIK3MaSz5dQVPtw==}
+  '@vinhnt-sdk/core@0.11.0':
+    resolution: {integrity: sha512-zRC+vjyyidcIwpcVzo85dX+qESPcrbVa4sNTTfTjiGCs5soIsfHqvr5p10XaLKIft0UqZzBbOqwqPbuzBYsQ5Q==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/core@0.5.2':
-    resolution: {integrity: sha512-PtVgZJAg5FILoBtogW008D0TFRnVp6VxWGxgJON/a+XlKMg6cifdjIbCs4NqTTEeISyv3UK6LxuflyaWpDKwow==}
+  '@vinhnt-sdk/event@0.11.0':
+    resolution: {integrity: sha512-nXOOLSEuP0Z949VdbHOfZovCguAsLh0XgnPcBV1Z51vP2Y238EbDcy+ePWqP5jj8s5ms7TuEWN20ATMCEx3gaw==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/event@0.4.2':
-    resolution: {integrity: sha512-zPqnZS6aEn2I3DxfFH/W1DwmaYmK6i4TsKmxI3scjJ3p9pGklriBvVTGJP1yCx5TqVnRvPAhvhSey3Ez4SbaUA==}
-    engines: {node: '>=20'}
-
-  '@vinhnt-sdk/event@0.4.5':
-    resolution: {integrity: sha512-o5OqHAOLO3yF1dkkYVh0V7EVoZTqXV+5h34s6S+Z4GetClm2mTbFHqiuslkEojWsogepvtZ7vKNBga1bHjrleA==}
+  '@vinhnt-sdk/guard@0.11.0':
+    resolution: {integrity: sha512-oKfajetjyczHc27kTeoQJMhQGLlxxWPZ9pvxo7CA/BXoFRaJ8SsWmVArS2cpypeCdWfxzsRWnQgAPhsTLAeXyg==}
     engines: {node: '>=20'}
 
   '@vinhnt-sdk/guard@0.4.2':
     resolution: {integrity: sha512-3LQZVNIrvy7W/qULWEU5Ns5+tSy0beO/7Bukr9SXEhVH5jgFwDA06Zqfjtiz3dRVNg7rgZWSszmOnt2PywyNrQ==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/guard@0.4.3':
-    resolution: {integrity: sha512-So94s4pH3BXy3ktQpalDk+8fNvpcA2kn9vhSLzS7eFleBnXjFbazRpKvoE4ioZ5UeCkTjfbyNCb88EDC5UIZfA==}
+  '@vinhnt-sdk/guardrails@0.11.0':
+    resolution: {integrity: sha512-Ytd43YBssnemWVdUEpYpQocwZbZVLFBBt2I1QUXGGM/q4O8Ah+tGjxj6TDH5RzY9xCQo2539tL/xPEmsO3T+zg==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/guard@0.4.4':
-    resolution: {integrity: sha512-zrhZUhgm2MWzgrtqHtCaKgB6/wg6tHI/n0+hdAopvxSSVm/H8IVlhwgbx1z43eDTopX5cQWx7JOWSLzpp+JOZA==}
-    engines: {node: '>=20'}
-
-  '@vinhnt-sdk/guardrails@0.4.2':
-    resolution: {integrity: sha512-T2VdCyUnNNSe138MLLxu6u6A0UjFWaPe7bwjAldJ/PeI1iZ+OaFb8LdxSp05WCV6UoRH5q07GEjedRs/brDerA==}
-    engines: {node: '>=20'}
-
-  '@vinhnt-sdk/knowledge@0.4.2':
-    resolution: {integrity: sha512-STZcfJx60ovAQjRtzm7OCYADKGdanKroWOcFasGhtUd/3lHB0g2+eF8d/AxjDDFuQ8kZvO+gg4QZktQxcAZDyA==}
+  '@vinhnt-sdk/knowledge@0.11.0':
+    resolution: {integrity: sha512-/RzKLyHmfHcsnGdYaQt/ecbmO3P98X0Fq9RtdkBJU+PCBQq+2sxUjJq8uhMabmjKRyZQLBa7YeV5pdZdFPUifQ==}
     engines: {node: '>=20'}
     peerDependencies:
-      '@vinhnt-sdk/tools': 0.4.10
+      '@vinhnt-sdk/tools': 0.11.0
     peerDependenciesMeta:
       '@vinhnt-sdk/tools':
         optional: true
 
-  '@vinhnt-sdk/knowledge@0.4.4':
-    resolution: {integrity: sha512-TTZx7NzXD8LB07lIgrswlymIcOg1GEVeT1Ech8s6oN0+QDFQGIUZOJXaU60XWs1OwS89r2YjFVo+4HTQJcfklA==}
-    engines: {node: '>=20'}
-    peerDependencies:
-      '@vinhnt-sdk/tools': 0.4.10
-    peerDependenciesMeta:
-      '@vinhnt-sdk/tools':
-        optional: true
-
-  '@vinhnt-sdk/llm@0.4.2':
-    resolution: {integrity: sha512-cLMCzkfWxPIREvXp3Mj7KTn5uY5HEOp99Kna62d4woCay3YofuXlqytJvyfPNg5qYTdm+kEbwkhnN6cJZOLZwg==}
+  '@vinhnt-sdk/llm@0.11.0':
+    resolution: {integrity: sha512-9svozHRuO6MurIX75pNHkLyEDzdJuHdP2wzsRamTkFHIYvYmpc/MPta8ukePZP1sSDZpIInYA+pNKrydKW2J0g==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/llm@0.5.10':
-    resolution: {integrity: sha512-EYE246B8DrM0I7koVguFFmtjqN1lIXFp9qe3M7EdLD+RiPURH4203YBWOALNHMkTvMwXR8s4zpvATkGIVK+g7A==}
+  '@vinhnt-sdk/lsp@0.11.0':
+    resolution: {integrity: sha512-Io1fZy7vYRljBy82VvypKzY/FGrkotYsab9JvcFV6zGuQjiXvXJHxUGQlB6Uo2OEbEviTw20wnm/F13hmHgH7w==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/lsp@0.4.3':
-    resolution: {integrity: sha512-pwD/7xq9AM0jzGibsZiCWgK+nNSheHkFDSvhQm+AkfyjCa9ox08/aVP0b96UH6kiH8redxoC9RGCfvHq6GfOlg==}
+  '@vinhnt-sdk/mcp@0.11.0':
+    resolution: {integrity: sha512-TnJnqxiYjfL/BXE4CPnyxum6A/6ByFG9Zrje/CviEZNA0YLWl313b6uvrwsaKvhGEcIu6sn4/y40C7kmO3X6eg==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/mcp@0.4.5':
-    resolution: {integrity: sha512-p0eqhlFNIG3VxTvqdzZoK5DYhLnvIhfLMjgRgTPXB9lLW+y1yR9+x5s+CKTDXPGoSwyZyYdbJX3y4gdBU/RnXg==}
+  '@vinhnt-sdk/permission@0.11.0':
+    resolution: {integrity: sha512-FBop4v1BA5FyVMBjpImhKWIQ9B8Oi8ZUnF0YlVeUkRk4n8BQ9QVYs6J/KzXO72cLHgSWBuwgqe5ffGJ5w2Bz+w==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/permission@0.4.2':
-    resolution: {integrity: sha512-6ecXTdnvS+LTu9tuO9JrnZDcNnhMWV0N14waoIX8eVAT01GgARAoLBRQigIKlmqJcMfIdnpvLm9vxHHTGerY1Q==}
+  '@vinhnt-sdk/plugin@0.11.0':
+    resolution: {integrity: sha512-SbW1UPG/FMqhPMuUZF4MZQ0RMUSpvjKs8B+SjVmnexHjb765amRpkgqwlfsj0mWY80gFag9fOD5hWHU6a0Wu9w==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/permission@0.5.1':
-    resolution: {integrity: sha512-1FkTrYfoHzqSXYxix4206ZGATsmp4e/4pF5X3BzCUabUL4WCHQhGQCkELJiUOW1OuBmXuu0ki+JrT9un7pgaZg==}
+  '@vinhnt-sdk/provider-openai-compatible@0.11.0':
+    resolution: {integrity: sha512-8gCHts5zbtEf4Fo0YENfEM9T/DT8BGfEAY3YyRC1kaQocSwrk8Lc8oDdmE5phVuO+PM0oJv7FHs/wf8FLanZ3w==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/plugin@0.4.2':
-    resolution: {integrity: sha512-BhhKZOlFlODxDHOR3U0xCJK/xkgpQkqmeJ0zUVkj672IbgXDfygVt1DeyAFOVqui/Zrgxo041QZtidHZP6MDog==}
+  '@vinhnt-sdk/sandbox@0.11.0':
+    resolution: {integrity: sha512-unmkSyE/c2aubChsEpt1qq6/ZRjSXn4Bow2wozy3ZKBRpkCdt0h8pP/lQGoyV7lwuvHxk624PXzmYQWUG322kQ==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/provider-openai-compatible@0.4.6':
-    resolution: {integrity: sha512-VSGNrUfkYW0xU+YgeRl4p3Z5KoFyGDlCycIyuYHZR1/nzzsXNN75lyyHGlZjwNTEplsDN/PdHmdq7NR/oCWWew==}
-    engines: {node: '>=20'}
-
-  '@vinhnt-sdk/sandbox@0.4.2':
-    resolution: {integrity: sha512-tLeSlk9qvKJhQ0eKLKZbP0zboKdfxtrJJR4MEjj3sxHluAaaLDJmCzgkDwKNa2/mN3yGer1igTOSReAikaELLg==}
-    engines: {node: '>=20'}
-
-  '@vinhnt-sdk/schema@0.5.13':
-    resolution: {integrity: sha512-TchKPvwqiYPb53w5/Ls+HK+Yyu4zb2P+Nn1tMjx55WaUqlBSe+SM2JtV32tUrycBGwH+r5g24HydjfC+2gq8IA==}
+  '@vinhnt-sdk/schema@0.11.0':
+    resolution: {integrity: sha512-lvm0WkuUKehqvpZ9vnqmCmu5U7MzHV5i+8kk1svkKz8kixFvWraMcYA0Ca425TPQOGvjGzrJyEOtWwqUQHL+oA==}
     engines: {node: '>=20'}
 
   '@vinhnt-sdk/security@0.4.2':
     resolution: {integrity: sha512-q+qCpPbofQhGpANQ7CueMU3EHeBr/O+lsBUGfvJKPxEg1GJiLe5hR1TwP4jTtacKKQy6qwz2lnY2IU8dmjb3+A==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/session@0.4.2':
-    resolution: {integrity: sha512-vq+Wbhpf1NQ5YCDPPJkfG+67LEOMbq52VIRu5H24b0kvZ/JWSPuR2sO3gUm0LfKQbcvoYn+VwXdGNI7dHTjWQA==}
+  '@vinhnt-sdk/session@0.11.0':
+    resolution: {integrity: sha512-CmT+aT03VqqVnEkSvaUUO95ii/qn3qkuj5V91ctKVeBebamNZtsw7qzTU4QYX++QIMXO+oiy/YB6ijjYoYUU7g==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/session@0.4.5':
-    resolution: {integrity: sha512-kxZWuvJmPpVSTqj+emgvbiHXB2zeAqAIJWH0S1l3O4Auksy62rvC6egM//yB8pzU7wTYITySAT8UcgqZLZwecg==}
+  '@vinhnt-sdk/step-executor@0.11.0':
+    resolution: {integrity: sha512-6/6inPhf4S3vf/DXGaKURuEXi4uTsMwcniCuF5Dj47xIyE80UNAHW5BvlRoJBoYsTs1dkPXyRaowhIbX+BEHlA==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/step-executor@0.4.2':
-    resolution: {integrity: sha512-b46V8CBm9Ohi84Bg/oiGN7TFX2pbFDS30u1p7hvs3cXHDq8DPMnNqBuoPdhadTkZ/3FpBa7dikpqeIcWC2Qr3A==}
+  '@vinhnt-sdk/tools@0.11.0':
+    resolution: {integrity: sha512-fMrFr8nwqecaEfoAW79wnvr/7T5x4L3FrgflIh1BpFRKFggNEXW17X8yb9hSU3MiRJGL8Aynh/z//Xz0s/sNQA==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/step-executor@0.6.5':
-    resolution: {integrity: sha512-HlAcnJ73ob4Udh5XflAhcjsqgpeAzTthItMoBQj/6a0bPMhXv2s9BV0plKC3eLgZOd5YsciBiB1h4HUwcaD6bw==}
+  '@vinhnt-sdk/trace@0.11.0':
+    resolution: {integrity: sha512-X45p0AaoiJcT49ENB9WKUON8g7Tkz8kFXZkOxHGeeYKeJw6+RtDH2IjHOVxkXIY/5yxy6lg+YWUzqoJWcgc6kA==}
     engines: {node: '>=20'}
 
-  '@vinhnt-sdk/tools@0.4.10':
-    resolution: {integrity: sha512-rUae/rn98aeLccvxnw7EGQjpJEZ6S5kq5XLReegX4MKy2XQ/MrmoNVAjbI+EHb9cSL9SG60IH7vv+coP4B11Zw==}
-    engines: {node: '>=20'}
-
-  '@vinhnt-sdk/trace@0.4.3':
-    resolution: {integrity: sha512-WjoS8Qf5d0NgIdWEUTgYB/sTy+poYvoGiguqeVFxILG6xnfkPDvcAsefnyM07n+pZae+lidyEwv9TSi97ruUXQ==}
-    engines: {node: '>=20'}
-
-  '@vinhnt-sdk/workflow@0.4.2':
-    resolution: {integrity: sha512-d09tWuwhfc1OGQC5xkxUnBJVUMeVJ81iF8UWdn7mShgZCEOE+bilxzV7WtncXUk1H0G1V3wV66KscZ3n7loVJQ==}
+  '@vinhnt-sdk/workflow@0.11.0':
+    resolution: {integrity: sha512-HYE3cYSO00yzU7abDlXEcigSZsVCqpXQg6ePpLQsrSyfkXDPXRN7CryT3lE11zPR7Icc648MJC/p6gppTXEkAg==}
     engines: {node: '>=20'}
 
   '@webassemblyjs/ast@1.14.1':
@@ -5739,128 +5705,88 @@ snapshots:
   '@unrs/resolver-binding-win32-x64-msvc@1.12.2':
     optional: true
 
-  '@vinhnt-sdk/config@0.4.2':
+  '@vinhnt-sdk/config@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/core@0.10.8':
+  '@vinhnt-sdk/core@0.11.0':
     dependencies:
-      '@vinhnt-sdk/event': 0.4.5
-      '@vinhnt-sdk/guard': 0.4.4
-      '@vinhnt-sdk/guardrails': 0.4.2
-      '@vinhnt-sdk/knowledge': 0.4.4(@vinhnt-sdk/tools@0.4.10)
-      '@vinhnt-sdk/llm': 0.5.10
-      '@vinhnt-sdk/permission': 0.5.1
-      '@vinhnt-sdk/sandbox': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/session': 0.4.5
-      '@vinhnt-sdk/step-executor': 0.6.5
-      '@vinhnt-sdk/tools': 0.4.10
-      '@vinhnt-sdk/workflow': 0.4.2
+      '@vinhnt-sdk/event': 0.11.0
+      '@vinhnt-sdk/guard': 0.11.0
+      '@vinhnt-sdk/guardrails': 0.11.0
+      '@vinhnt-sdk/knowledge': 0.11.0(@vinhnt-sdk/tools@0.11.0)
+      '@vinhnt-sdk/llm': 0.11.0
+      '@vinhnt-sdk/permission': 0.11.0
+      '@vinhnt-sdk/sandbox': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
+      '@vinhnt-sdk/session': 0.11.0
+      '@vinhnt-sdk/step-executor': 0.11.0
+      '@vinhnt-sdk/tools': 0.11.0
+      '@vinhnt-sdk/trace': 0.11.0
+      '@vinhnt-sdk/workflow': 0.11.0
       zod: 4.6.5
 
-  '@vinhnt-sdk/core@0.5.2':
+  '@vinhnt-sdk/event@0.11.0':
     dependencies:
-      '@vinhnt-sdk/event': 0.4.2
-      '@vinhnt-sdk/guard': 0.4.2
-      '@vinhnt-sdk/guardrails': 0.4.2
-      '@vinhnt-sdk/knowledge': 0.4.2(@vinhnt-sdk/tools@0.4.10)
-      '@vinhnt-sdk/llm': 0.4.2
-      '@vinhnt-sdk/permission': 0.4.2
-      '@vinhnt-sdk/sandbox': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/session': 0.4.2
-      '@vinhnt-sdk/step-executor': 0.4.2
-      '@vinhnt-sdk/tools': 0.4.10
-      '@vinhnt-sdk/workflow': 0.4.2
+      '@vinhnt-sdk/schema': 0.11.0
       zod: 4.6.5
 
-  '@vinhnt-sdk/event@0.4.2':
+  '@vinhnt-sdk/guard@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
-      zod: 4.6.5
-
-  '@vinhnt-sdk/event@0.4.5':
-    dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
-      zod: 4.6.5
+      '@vinhnt-sdk/schema': 0.11.0
 
   '@vinhnt-sdk/guard@0.4.2':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/guard@0.4.3':
+  '@vinhnt-sdk/guardrails@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/guard': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/guard@0.4.4':
+  '@vinhnt-sdk/knowledge@0.11.0(@vinhnt-sdk/tools@0.11.0)':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
-
-  '@vinhnt-sdk/guardrails@0.4.2':
-    dependencies:
-      '@vinhnt-sdk/guard': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
-
-  '@vinhnt-sdk/knowledge@0.4.2(@vinhnt-sdk/tools@0.4.10)':
-    dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/schema': 0.11.0
     optionalDependencies:
-      '@vinhnt-sdk/tools': 0.4.10
+      '@vinhnt-sdk/tools': 0.11.0
 
-  '@vinhnt-sdk/knowledge@0.4.4(@vinhnt-sdk/tools@0.4.10)':
+  '@vinhnt-sdk/llm@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
-    optionalDependencies:
-      '@vinhnt-sdk/tools': 0.4.10
+      '@vinhnt-sdk/config': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
+      '@vinhnt-sdk/tools': 0.11.0
 
-  '@vinhnt-sdk/llm@0.4.2':
+  '@vinhnt-sdk/lsp@0.11.0':
     dependencies:
-      '@vinhnt-sdk/config': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/tools': 0.4.10
-
-  '@vinhnt-sdk/llm@0.5.10':
-    dependencies:
-      '@vinhnt-sdk/config': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/tools': 0.4.10
-
-  '@vinhnt-sdk/lsp@0.4.3':
-    dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/tools': 0.4.10
+      '@vinhnt-sdk/schema': 0.11.0
+      '@vinhnt-sdk/tools': 0.11.0
       zod: 4.6.5
 
-  '@vinhnt-sdk/mcp@0.4.5':
+  '@vinhnt-sdk/mcp@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/tools': 0.4.10
+      '@vinhnt-sdk/schema': 0.11.0
+      '@vinhnt-sdk/tools': 0.11.0
 
-  '@vinhnt-sdk/permission@0.4.2':
+  '@vinhnt-sdk/permission@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/permission@0.5.1':
+  '@vinhnt-sdk/plugin@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/core': 0.11.0
 
-  '@vinhnt-sdk/plugin@0.4.2':
+  '@vinhnt-sdk/provider-openai-compatible@0.11.0':
     dependencies:
-      '@vinhnt-sdk/core': 0.5.2
+      '@vinhnt-sdk/config': 0.11.0
+      '@vinhnt-sdk/guard': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/provider-openai-compatible@0.4.6':
+  '@vinhnt-sdk/sandbox@0.11.0':
     dependencies:
-      '@vinhnt-sdk/config': 0.4.2
-      '@vinhnt-sdk/guard': 0.4.3
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/guard': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/sandbox@0.4.2':
-    dependencies:
-      '@vinhnt-sdk/guard': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
-
-  '@vinhnt-sdk/schema@0.5.13':
+  '@vinhnt-sdk/schema@0.11.0':
     dependencies:
       zod: 4.6.5
 
@@ -5868,49 +5794,35 @@ snapshots:
     dependencies:
       '@vinhnt-sdk/guard': 0.4.2
 
-  '@vinhnt-sdk/session@0.4.2':
+  '@vinhnt-sdk/session@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/guard': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/session@0.4.5':
+  '@vinhnt-sdk/step-executor@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/event': 0.11.0
+      '@vinhnt-sdk/guard': 0.11.0
+      '@vinhnt-sdk/llm': 0.11.0
+      '@vinhnt-sdk/permission': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
+      '@vinhnt-sdk/session': 0.11.0
+      '@vinhnt-sdk/tools': 0.11.0
 
-  '@vinhnt-sdk/step-executor@0.4.2':
+  '@vinhnt-sdk/tools@0.11.0':
     dependencies:
-      '@vinhnt-sdk/event': 0.4.2
-      '@vinhnt-sdk/guard': 0.4.2
-      '@vinhnt-sdk/llm': 0.4.2
-      '@vinhnt-sdk/permission': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/security': 0.4.2
-      '@vinhnt-sdk/session': 0.4.2
-      '@vinhnt-sdk/tools': 0.4.10
-
-  '@vinhnt-sdk/step-executor@0.6.5':
-    dependencies:
-      '@vinhnt-sdk/event': 0.4.5
-      '@vinhnt-sdk/guard': 0.4.4
-      '@vinhnt-sdk/llm': 0.5.10
-      '@vinhnt-sdk/permission': 0.5.1
-      '@vinhnt-sdk/schema': 0.5.13
-      '@vinhnt-sdk/session': 0.4.5
-      '@vinhnt-sdk/tools': 0.4.10
-
-  '@vinhnt-sdk/tools@0.4.10':
-    dependencies:
-      '@vinhnt-sdk/guard': 0.4.4
-      '@vinhnt-sdk/sandbox': 0.4.2
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/guard': 0.11.0
+      '@vinhnt-sdk/sandbox': 0.11.0
+      '@vinhnt-sdk/schema': 0.11.0
       zod: 4.6.5
 
-  '@vinhnt-sdk/trace@0.4.3':
+  '@vinhnt-sdk/trace@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/schema': 0.11.0
 
-  '@vinhnt-sdk/workflow@0.4.2':
+  '@vinhnt-sdk/workflow@0.11.0':
     dependencies:
-      '@vinhnt-sdk/schema': 0.5.13
+      '@vinhnt-sdk/schema': 0.11.0
 
   '@webassemblyjs/ast@1.14.1':
     dependencies:

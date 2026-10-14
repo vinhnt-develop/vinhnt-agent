@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { AgentSettingsService } from './agent-settings.service';
 import {
   CUSTOM_TOOLS_CONFIG,
   type CustomToolJsonConfig,
@@ -23,33 +23,12 @@ import {
 } from '@vinhnt-sdk/tools';
 import {
   InMemoryApprovalStore,
-  matchPermission,
-  buildPermissionRules,
   type ApprovalStore,
 } from '@vinhnt-sdk/permission';
 import {
   CircuitBreaker,
   LoopDetector,
-  withToolTimeout,
-  defaultSecretRedactor,
-  sanitizeForLLM,
-  detectInjectionPatterns,
-  redactSecrets,
-  sanitizeEnv,
 } from '@vinhnt-sdk/guard';
-import { Timeline, CostMeter } from '@vinhnt-sdk/trace';
-import {
-  createHostSandbox,
-  type SandboxConfig,
-  type ProcessSandbox,
-} from '@vinhnt-sdk/sandbox';
-import {
-  resolveEnv,
-  resolveCredentialFromEnv,
-  type EnvSnapshot,
-  type CredentialRef,
-} from '@vinhnt-sdk/config';
-import { RunStateMachine, type RunState } from '@vinhnt-sdk/step-executor';
 import {
   InMemoryPluginRegistry,
   definePlugin,
@@ -99,12 +78,6 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     resetTimeoutMs: 60_000,
   });
   private readonly loopDetector = new LoopDetector(3, 20);
-  private readonly timelines = new Map<string, Timeline>();
-  private readonly costMeters = new Map<string, CostMeter>();
-  private readonly MAX_TIMELINES = 200;
-  private readonly MAX_COST_METERS = 200;
-  private readonly envSnapshot: EnvSnapshot;
-  private readonly runStateMachine = new RunStateMachine();
   private readonly pluginRegistry: PluginRegistry =
     new InMemoryPluginRegistry();
   private readonly mcpClient = new McpClient();
@@ -115,13 +88,11 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   private lspToolsRegistered = false;
 
   constructor(
-    private readonly configService: ConfigService,
+    private readonly settingsService: AgentSettingsService,
     private readonly mcpServerService: McpServerService,
     @Inject(CUSTOM_TOOLS_CONFIG)
     private readonly customToolsConfig?: JsonConfigStore<CustomToolJsonConfig>,
-  ) {
-    this.envSnapshot = resolveEnv(process.env);
-  }
+  ) {}
 
   async onModuleInit(): Promise<void> {
     try {
@@ -177,7 +148,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
 
   initializeTools(workspaceRoot?: string): void {
     const root =
-      workspaceRoot || this.configService.get<string>('agent.workspaceRoot', '.');
+      workspaceRoot || this.settingsService.getSettings().workspaceRoot;
 
     const asSystem = (tool: ToolDefinition): ToolDefinition => ({
       ...tool,
@@ -343,136 +314,8 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  checkPermission(
-    action: string,
-    resource: string,
-    permissionRules?: Array<{
-      action: string;
-      resource: string;
-      effect: string;
-      target?: string;
-    }>,
-  ): {
-    effect: string;
-    matchedRule?: { action?: string; effect: string; target?: string };
-  } {
-    if (!permissionRules || permissionRules.length === 0) {
-      return { effect: 'allow' };
-    }
-    return matchPermission(permissionRules, action, resource);
-  }
-
-  buildPermissionRules(
-    config: Record<string, string | Record<string, string>>,
-  ): Array<{ action: string; resource: string; effect: string }> {
-    return buildPermissionRules(config);
-  }
-
-  async checkCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
-    return this.circuitBreaker.call(fn);
-  }
-
-  checkDoomLoop(toolId: string, args: unknown): boolean {
-    return this.loopDetector.isDoomLoop(toolId, args);
-  }
-
-  recordToolCall(toolId: string, args: unknown): void {
-    this.loopDetector.record(toolId, args);
-  }
-
-  async withTimeout<T>(
-    toolId: string,
-    timeoutMs: number,
-    fn: (signal: AbortSignal) => Promise<T>,
-  ): Promise<T> {
-    return withToolTimeout(toolId, timeoutMs, fn);
-  }
-
-  getTimeline(runId: string): Timeline {
-    if (!this.timelines.has(runId)) {
-      if (this.timelines.size >= this.MAX_TIMELINES) {
-        const firstKey = this.timelines.keys().next().value;
-        if (firstKey) this.timelines.delete(firstKey);
-      }
-      this.timelines.set(runId, new Timeline());
-    }
-    return this.timelines.get(runId)!;
-  }
-
-  getCostMeter(runId: string): CostMeter {
-    if (!this.costMeters.has(runId)) {
-      if (this.costMeters.size >= this.MAX_COST_METERS) {
-        const firstKey = this.costMeters.keys().next().value;
-        if (firstKey) this.costMeters.delete(firstKey);
-      }
-      this.costMeters.set(runId, new CostMeter());
-    }
-    return this.costMeters.get(runId)!;
-  }
-
-  recordTimelineEvent(
-    runId: string,
-    type: string,
-    data: Record<string, unknown>,
-  ): void {
-    const timeline = this.getTimeline(runId);
-    timeline.record(type as any, data);
-  }
-
-  recordTokenUsage(
-    runId: string,
-    inputTokens: number,
-    outputTokens: number,
-    modelId?: string,
-  ) {
-    const meter = this.getCostMeter(runId);
-    return meter.record(inputTokens, outputTokens, modelId);
-  }
-
-  cleanupRun(runId: string): void {
-    this.timelines.delete(runId);
-    this.costMeters.delete(runId);
+  cleanupRun(_runId: string): void {
     this.loopDetector.reset();
-  }
-
-  sanitizeForLLM(text: string, source?: string): string {
-    return sanitizeForLLM(text, source);
-  }
-
-  detectInjectionPatterns(text: string): string[] {
-    return detectInjectionPatterns(text);
-  }
-
-  redactSecrets(text: string): string {
-    return redactSecrets(text);
-  }
-
-  redactObjectSecrets<T>(value: T): T {
-    const redactor = defaultSecretRedactor;
-    return JSON.parse(redactor.redact(JSON.stringify(value))) as T;
-  }
-
-  sanitizeEnv(
-    source?: Record<string, string | undefined>,
-    allowedVars?: string[],
-  ): Record<string, string> {
-    return sanitizeEnv(source, allowedVars);
-  }
-
-  resolveCredential(ref: CredentialRef) {
-    return resolveCredentialFromEnv(this.envSnapshot, ref);
-  }
-
-  createSandbox(config?: SandboxConfig): ProcessSandbox {
-    return createHostSandbox(config);
-  }
-
-  validateToolOutput(output: string, toolName: string): string {
-    return sanitizeForLLM(output, `tool:${toolName}`);
-  }
-
-  getRunStateMachine() {
-    return this.runStateMachine;
   }
 
   getPluginRegistry() {
@@ -563,8 +406,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
 
   async initializeLspPool(workspaceRoot?: string): Promise<void> {
     const root =
-      workspaceRoot ||
-      this.configService.get<string>('agent.workspaceRoot', '.');
+      workspaceRoot || this.settingsService.getSettings().workspaceRoot;
     this.lspPool.setActiveRoots([root]);
     if (!this.lspToolsRegistered) {
       const lspTools = this.getLspTools();

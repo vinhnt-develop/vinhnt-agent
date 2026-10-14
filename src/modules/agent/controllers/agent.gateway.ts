@@ -11,11 +11,12 @@ import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
-import { AgentSettingsService, KernelSettings } from '../services/agent-settings.service';
+import { AgentSettingsService } from '../services/agent-settings.service';
 import { extractActualErrorMessage } from '@/shared/error-utils';
 import { ProjectPathService } from '@/shared/project-path.service';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { SdkError, isSdkError } from '@vinhnt-sdk/schema';
+import type { PermissionMode } from '@/shared/permission-mode';
 
 /** Maximum age (ms) for runError entries before automatic cleanup. */
 const RUN_ERROR_TTL_MS = 5 * 60 * 1000;
@@ -86,6 +87,10 @@ export class AgentGateway
         // both WS and HTTP runs are tracked. Must run before the clientId
         // check below: rows are needed even when no client is attached.
         this.trackToolEvent(event, runId);
+        // P6.1: usage facts (token.counted/model.cost/run.completed) must be
+        // captured for HTTP runs too — runs without a WS client still need the
+        // full terminal payload (reasoning/cache tokens, cost, stopReason).
+        this.trackUsageEvent(event, runId);
 
         const clientId = this.runToClient.get(runId);
         if (!clientId) return;
@@ -160,6 +165,34 @@ export class AgentGateway
     }
   }
 
+  private trackUsageEvent(event: { type?: string; data?: unknown }, runId: string): void {
+    const type = event.type;
+    if (type !== 'token.counted' && type !== 'model.cost' && type !== 'run.completed') return;
+    const data = (event.data ?? {}) as Record<string, unknown>;
+    if (type === 'token.counted') {
+      this.trackingService.recordRunUsage(runId, {
+        inputTokens: data.inputTokens as number | undefined,
+        outputTokens: data.outputTokens as number | undefined,
+        reasoningTokens: data.reasoningTokens as number | undefined,
+        cacheReadTokens: data.cacheReadTokens as number | undefined,
+        cacheWriteTokens: data.cacheWriteTokens as number | undefined,
+        model: data.model as string | undefined,
+        provider: data.provider as string | undefined,
+      });
+    } else if (type === 'model.cost') {
+      this.trackingService.recordRunUsage(runId, {
+        totalCost: data.cost as number | undefined,
+        model: data.model as string | undefined,
+        provider: data.provider as string | undefined,
+      });
+    } else {
+      this.trackingService.recordRunUsage(runId, {
+        stopReason: data.stopReason as string | undefined,
+        provider: data.provider as string | undefined,
+      });
+    }
+  }
+
   handleConnection(client: Socket) {
     this.logger.log(`Client connected: ${client.id}`);
   }
@@ -183,13 +216,15 @@ export class AgentGateway
       prompt: string;
       model?: string;
       provider?: string;
-      workspaceId?: string;
-      settings?: Partial<KernelSettings>;
-      permissionMode?: 'ask' | 'edit' | 'full';
+      // P4.2: the client no longer sends `settings` — a client snapshot goes
+      // stale the moment the user hits Save in Settings (it used to pin
+      // maxTokens at 4096 even after Settings showed 16000). Kernel params
+      // always come from the server-side saved settings; only explicit
+      // per-run fields (permissionMode, selection, model) come from the client.
+      permissionMode?: PermissionMode;
       selection?: {
         tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
         knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
-        plugins?: string[];
       };
     },
   ) {
@@ -197,16 +232,10 @@ export class AgentGateway
     let eventCount = 0;
     let runId: string | undefined;
 
-    // Merge request settings with saved settings
     const savedSettings = this.settingsService.getSettings();
-    // Server savedSettings wins for global kernel params — client may send a
-    // stale snapshot (fetched before user hit Save), which used to pin maxTokens
-    // at 4096 even after Settings showed 16000. Only explicit per-run fields
-    // from the client (permissionMode, selection, model) are applied elsewhere.
-    const mergedSettings = { ...data.settings, ...savedSettings };
 
     this.logger.log(
-      `Run requested | client=${client.id} session=${data.sessionId} model=${data.model ?? 'default'} temperature=${mergedSettings.temperature}`,
+      `Run requested | client=${client.id} session=${data.sessionId} model=${data.model ?? 'default'} temperature=${savedSettings.temperature}`,
     );
 
     try {
@@ -229,7 +258,7 @@ export class AgentGateway
 
       const result = await this.agentService.runAgentStreaming({
         ...data,
-        settings: mergedSettings,
+        settings: savedSettings,
         projectPath: await this.projectPathService.resolve(data.sessionId),
         permissionMode: data.permissionMode,
       });
@@ -274,9 +303,10 @@ export class AgentGateway
         this.logger.log(
           `Run CANCELLED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount}`,
         );
-        this.trackingService.completeRun({
+        this.trackingService.completeRunFromResult({
           runId,
           status: 'cancelled',
+          result: completed,
           durationMs,
           errorMessage: 'Run cancelled by user',
           stopReason: 'cancelled',
@@ -297,9 +327,10 @@ export class AgentGateway
           `Run FAILED | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${this.trackingService.getToolCallsCount(runId) ?? 0} error=${errorMsg}`,
         );
 
-        this.trackingService.completeRun({
+        this.trackingService.completeRunFromResult({
           runId,
           status: 'failed',
+          result: completed,
           durationMs,
           errorMessage: errorMsg,
         });
@@ -321,30 +352,29 @@ export class AgentGateway
           runId,
         });
       } else {
-        const inputTokens = completed?.usage?.inputTokens ?? 0;
-        const outputTokens = completed?.usage?.outputTokens ?? 0;
-        this.logger.log(
-          `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${this.trackingService.getToolCallsCount(runId) ?? 0} tokens=${inputTokens}+${outputTokens}`,
-        );
-
-        this.trackingService.completeRun({
+        // P6.1: single payload builder — persists the full usage set (WS path
+        // used to drop reasoning/cache tokens + cost + stopReason here), then
+        // reuses the same values for the client emit.
+        const payload = this.trackingService.completeRunFromResult({
           runId,
-          status: 'succeeded',
-          inputTokens: completed?.usage?.inputTokens,
-          outputTokens: completed?.usage?.outputTokens,
-          totalCost: completed?.usage?.cost,
-          durationMs: completed?.usage?.durationMs ?? durationMs,
-          toolCallsCount: completed?.usage?.toolCallsCount,
+          result: completed,
+          durationMs,
         });
+        this.logger.log(
+          `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${this.trackingService.getToolCallsCount(runId) ?? 0} tokens=${payload.inputTokens ?? 0}+${payload.outputTokens ?? 0}`,
+        );
 
         client.emit('run:completed', {
           ...completed,
           sessionId: data.sessionId,
-          reasoningTokens: (completed as any)?.usage?.reasoningTokens,
-          cacheReadTokens: (completed as any)?.usage?.cacheReadTokens,
-          cacheWriteTokens: (completed as any)?.usage?.cacheWriteTokens,
-          totalTokens: (completed as any)?.usage?.totalTokens,
-          stopReason: (completed as any)?.stopReason,
+          inputTokens: payload.inputTokens,
+          outputTokens: payload.outputTokens,
+          reasoningTokens: payload.reasoningTokens,
+          cacheReadTokens: payload.cacheReadTokens,
+          cacheWriteTokens: payload.cacheWriteTokens,
+          totalTokens: payload.totalTokens,
+          totalCost: payload.totalCost,
+          stopReason: payload.stopReason,
         });
       }
 
@@ -358,7 +388,7 @@ export class AgentGateway
       );
       if (runId) {
         // Mark run as failed in DB (prevents stuck "running" state)
-        this.trackingService.completeRun({
+        this.trackingService.completeRunFromResult({
           runId,
           status: 'failed',
           durationMs,

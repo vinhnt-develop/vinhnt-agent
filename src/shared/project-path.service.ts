@@ -1,13 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import * as path from 'node:path';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { ProjectRepository } from '@/modules/project/repositories/project.repository';
+import { KernelSettingsStore } from './kernel-settings.store';
 import { resolveProjectPathFromDeps } from './project-path';
 
 /**
  * Shared project path resolution for agent + file/git explorers.
  * Priority: project.directory → workspaceRoot fallback (warn).
+ * workspaceRoot comes from KernelSettingsStore (SC3 — saved kernel-settings.json
+ * value; injecting AgentSettingsService here would cycle the module graph).
  */
 @Injectable()
 export class ProjectPathService {
@@ -16,7 +18,7 @@ export class ProjectPathService {
   constructor(
     private readonly sessionRepository: SessionRepository,
     private readonly projectRepository: ProjectRepository,
-    private readonly configService: ConfigService,
+    private readonly settingsStore: KernelSettingsStore,
   ) {}
 
   async resolve(sessionId: string): Promise<string | undefined> {
@@ -25,7 +27,7 @@ export class ProjectPathService {
       if (!session?.projectId) return undefined;
       const project = await this.projectRepository.findById(session.projectId);
       if (!project) return undefined;
-      const workspaceRoot = this.configService.get<string>('agent.workspaceRoot');
+      const workspaceRoot = this.settingsStore.getWorkspaceRoot();
       return resolveProjectPathFromDeps({ session, project }, workspaceRoot);
     } catch {
       return undefined;
@@ -41,8 +43,7 @@ export class ProjectPathService {
       const projectPath = await this.resolve(sessionId);
       if (projectPath) return projectPath;
     }
-    const fallback =
-      this.configService.get<string>('agent.workspaceRoot', '.') || '.';
+    const fallback = this.settingsStore.getWorkspaceRoot() || '.';
     this.logger.warn(
       sessionId
         ? `No projectPath for session ${sessionId} — falling back to workspaceRoot=${fallback}`

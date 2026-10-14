@@ -2,6 +2,7 @@ import { Controller, Get, Put, Body, Post } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AgentSettingsService } from '../services/agent-settings.service';
 import type { KernelSettings } from '../services/agent-settings.service';
+import { UpdateKernelSettingsDto } from '../dto';
 
 @ApiTags('Agent Settings')
 @Controller({ path: 'agent/settings', version: '1' })
@@ -16,7 +17,7 @@ export class AgentSettingsController {
 
   @Put('kernel')
   @ApiOperation({ summary: 'Update kernel settings' })
-  updateKernelSettings(@Body() body: Partial<KernelSettings>): KernelSettings {
+  updateKernelSettings(@Body() body: UpdateKernelSettingsDto): KernelSettings {
     return this.settingsService.updateSettings(body);
   }
 

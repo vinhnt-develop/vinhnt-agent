@@ -13,19 +13,26 @@ import {
   createAgentSource,
   createToolContextSource,
   createCustomSource,
+  InMemoryModelRegistry,
+  // P7.1: unified ContextBudget — derive full budget from settings, feed both
+  // kernelConfig.contextBudget and the compressor (single source).
+  deriveContextBudget,
+  budgetToCompressorFields,
 } from '@vinhnt-sdk/core';
 import { ToolProviderRegistry } from '@vinhnt-sdk/tools';
-import type { AgentId } from '@vinhnt-sdk/schema';
+import type { AgentId, ModelProvider } from '@vinhnt-sdk/schema';
+import type { PermissionMode } from '@/shared/permission-mode';
 import type {
   RequestId,
   TraceId,
   ToolDefinitionLike,
 } from '@vinhnt-sdk/schema';
 import { InMemoryEventBus } from '@vinhnt-sdk/event';
-import { TokenMeter } from '@vinhnt-sdk/llm';
 import { createMemorySearchTool, ContextCompressor } from '@vinhnt-sdk/knowledge';
-import { InMemorySessionState, loadSessionHistory } from '@vinhnt-sdk/session';
+import { InMemorySessionState, loadSessionHistory, createDefaultSessionTitleGenerator } from '@vinhnt-sdk/session';
 import { SqliteSessionStore } from '@/infrastructure/storage/sqlite-session-store';
+import { buildKernelGuardrails } from './agent-guardrails';
+import { createMemorySource } from './memory-context-source';
 import { SqliteMemoryStore } from '@/infrastructure/storage/sqlite-memory-store';
 import { SqliteRunEventStore } from '@/infrastructure/storage/sqlite-run-event-store';
 import {
@@ -36,7 +43,7 @@ import { AgentRunTrackingService } from './agent-run-tracking.service';
 import { AgentKnowledgeService } from '@/modules/knowledge/services/agent-knowledge.service';
 import { extractActualErrorMessage } from '@/shared/error-utils';
 import { resolveSystemToolIds, withSystemTools } from '@/shared/tool-selection';
-import { KernelSettings } from './agent-settings.service';
+import { KernelSettings, AgentSettingsService } from './agent-settings.service';
 
 /**
  * Minimal PluginManager that fires hooks from the toolkit's plugin registry.
@@ -100,11 +107,10 @@ export interface RunAgentInput {
   settings?: Partial<KernelSettings>;
   projectPath?: string;
   /** Per-run permission mode from composer: ask | edit | full. */
-  permissionMode?: 'ask' | 'edit' | 'full';
+  permissionMode?: PermissionMode;
   selection?: {
     tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
     knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
-    plugins?: string[];
   };
 }
 
@@ -149,9 +155,10 @@ export class AgentService {
   /** Active run handles keyed by runId for run-specific cancellation.
    *  `isCancelled` is a getter on the kernel handle — assignment throws. */
   private activeHandles = new Map<string, { cancel: () => void; readonly isCancelled: boolean }>();
-  private readonly maxKernelCacheSize: number;
+  /** P4.5: per-session knowledge-id filter from the composer selection.
+   *  Absent/empty = include all knowledge entries (previous behaviour). */
+  private readonly knowledgeFilterBySession = new Map<string, string[]>();
   private readonly eventBus = new InMemoryEventBus();
-  private readonly tokenMeter = new TokenMeter();
   private readonly agentRegistry = new InMemoryAgentRegistry();
   private readonly pluginManager: ToolkitPluginManager;
 
@@ -164,8 +171,8 @@ export class AgentService {
     private readonly agentToolkit: AgentToolkit,
     private readonly trackingService: AgentRunTrackingService,
     private readonly knowledgeService: AgentKnowledgeService,
+    private readonly settingsService: AgentSettingsService,
   ) {
-    this.maxKernelCacheSize = this.configService.get<number>('agent.maxKernelCacheSize', 50);
     this.pluginManager = new ToolkitPluginManager({
       list: () =>
         this.agentToolkit.getPluginRegistry().list() as Array<{
@@ -181,7 +188,6 @@ export class AgentService {
   }
 
   getEventBus() { return this.eventBus; }
-  getTokenMeter() { return this.tokenMeter; }
   getAgentToolkit() { return this.agentToolkit; }
   getApprovalStore() { return this.agentToolkit.getApprovalStore(); }
 
@@ -190,7 +196,13 @@ export class AgentService {
   }
 
   private evictOldestKernel(): void {
-    if (this.kernels.size <= this.maxKernelCacheSize) return;
+    // SC3: capacity is a live settings read — UI/JSON edits apply to the next
+    // evict without a restart (was ctor-cached from env).
+    const maxKernelCacheSize = this.settingsService.getSettings().maxKernelCacheSize;
+    // P13: evict when the cache is at/over capacity BEFORE inserting the new
+    // kernel (call site is pre-insert) — the old `<=` let the map grow to
+    // max+1 and only trimmed on the next request.
+    if (this.kernels.size < maxKernelCacheSize) return;
     let oldestKey: string | null = null;
     let oldestTime = Infinity;
     for (const [key, entry] of this.kernels) {
@@ -215,6 +227,7 @@ export class AgentService {
       maxSteps: settings.maxSteps,
       thinkingBudget: settings.thinkingBudget,
       stepTimeout: settings.stepTimeout,
+      contextLimit: settings.contextLimit,
       toolChoice: settings.toolChoice,
       parallelToolCalls: settings.parallelToolCalls,
       maxToolCallsPerStep: settings.maxToolCallsPerStep,
@@ -228,7 +241,14 @@ export class AgentService {
       backoffMs: settings.backoffMs,
       maxBackoffMs: settings.maxBackoffMs,
       sandboxMode: settings.sandboxMode,
+      failoverModels: settings.failoverModels,
       systemPrompt: settings.systemPrompt,
+      // SC3: baked into kernel config at creation — a settings edit must not
+      // reuse a stale kernel (approvalTimeout/rules took effect only after
+      // restart before this).
+      approvalTimeoutMs: settings.approvalTimeoutMs,
+      globalPermissionRules: settings.globalPermissionRules,
+      permissionRiskDefaults: settings.permissionRiskDefaults,
     };
     return JSON.stringify(relevant);
   }
@@ -236,12 +256,16 @@ export class AgentService {
   /** 'ask' | 'edit' | 'full' — the approval mode resolved for a kernel instance. */
   private resolvePermissionMode(
     settings?: Partial<KernelSettings>,
-    override?: 'ask' | 'edit' | 'full',
-  ): 'ask' | 'edit' | 'full' {
-    // AGENT_AUTO_APPROVAL=false is an ops kill switch: always ask, even if the
-    // client requested edit/full.
+    override?: PermissionMode,
+  ): PermissionMode {
+    // L2 (SC1 decision): AGENT_AUTO_APPROVAL=false is an ops kill switch —
+    // checked FIRST, before any settings/UI value, so the API cannot bypass it.
     const envAutoApproval = this.configService.get<boolean>('agent.autoApproval', true);
     if (envAutoApproval === false) return 'ask';
+    // L1: settings.autoApproval (JSON/Settings UI toggle) — false → always ask.
+    const autoApproval =
+      settings?.autoApproval ?? this.settingsService.getSettings().autoApproval;
+    if (autoApproval === false) return 'ask';
     // Per-run composer choice > saved kernel settings > ask (opt-in via UI).
     return override ?? settings?.permissionMode ?? 'ask';
   }
@@ -255,9 +279,23 @@ export class AgentService {
   private async hydrateSessionState(
     sessionState: InMemorySessionState,
     sessionId: string,
+    historyLimit?: number,
   ): Promise<void> {
     try {
-      const history = await loadSessionHistory(this.sessionStore, sessionId);
+      let history = await loadSessionHistory(this.sessionStore, sessionId);
+      // P4.1 historyLimit — keep only the most recent N messages for this turn
+      // (nothing is deleted from the store). session@0.4.6 accepts
+      // loadSessionHistory(store, id, { limit }); until the app upgrades past
+      // the published 0.4.5, trim here — the transcript is already
+      // pair-repaired, so the only breakage a tail cut can cause is orphaned
+      // tool rows at the window head (their declaration fell outside), which
+      // we drop.
+      if (historyLimit !== undefined && historyLimit > 0 && history.length > historyLimit) {
+        history = history.slice(-historyLimit);
+        while (history.length > 0 && history[0]!.role === 'tool') {
+          history = history.slice(1);
+        }
+      }
       sessionState.resetMessages(history);
       sessionState.step = 0;
       sessionState.toolCallCount = 0;
@@ -274,7 +312,7 @@ export class AgentService {
     modelId?: string,
     providerName?: string,
     settings?: Partial<KernelSettings>,
-    permissionModeOverride?: 'ask' | 'edit' | 'full',
+    permissionModeOverride?: PermissionMode,
     sessionId?: string,
     projectPath?: string,
   ): Promise<any> {
@@ -289,7 +327,11 @@ export class AgentService {
     // P0-6: instructions/workspace context sources and kernelConfig.workspaceRoot
     // are BOUND at construction — a kernel built for one project root must not
     // be reused for another (system prompt cwd would disagree with tool cwd).
-    const root = projectPath ?? this.configService.get<string>('agent.workspaceRoot', '.');
+    // SC3: workspaceRoot resolves settings-first (per-run > saved JSON > literal).
+    const root =
+      projectPath ??
+      settings?.workspaceRoot ??
+      this.settingsService.getSettings().workspaceRoot;
     const rootSegment = `|root:${root}`;
     const fullCacheKey = settingsHash ? `${cacheKey}${sessionSegment}${rootSegment}|${settingsHash}${permissionKey}` : `${cacheKey}${sessionSegment}${rootSegment}${permissionKey}`;
 
@@ -297,7 +339,7 @@ export class AgentService {
     if (cached) {
       cached.lastAccess = Date.now();
       if (cached.sessionState && sessionId) {
-        await this.hydrateSessionState(cached.sessionState, sessionId);
+        await this.hydrateSessionState(cached.sessionState, sessionId, settings?.historyLimit);
       }
       return cached.kernel;
     }
@@ -338,6 +380,45 @@ export class AgentService {
       await this.agentRegistry.register(codeReviewer);
 
       const provider = await this.providerFactory.getModelProvider(providerName);
+
+      // P4.4 contextLimit — settings override (0 = provider/SDK default).
+      // Wrap (not mutate) the cached provider so the shared cache stays clean.
+      const contextLimit = settings?.contextLimit ?? 0;
+      const effectiveProvider: ModelProvider =
+        contextLimit > 0
+          ? (Object.assign(Object.create(provider), { contextLimit }) as ModelProvider)
+          : provider;
+
+      // P4.4 failoverModels — build a model registry ONLY when configured, so
+      // the default path (no registry) behaves exactly as before.
+      const failoverModels = (settings?.failoverModels ?? []).filter(Boolean);
+      let modelRegistry: InMemoryModelRegistry | undefined;
+      let modelRouting: { failoverModels: string[] } | undefined;
+      if (failoverModels.length > 0) {
+        modelRegistry = new InMemoryModelRegistry();
+        // Seed the PRIMARY model first — getByProvider falls back to the first
+        // registered entry, so primary-first prevents a failover id from being
+        // silently selected as the primary by a composer override miss.
+        modelRegistry.register(effectiveProvider.model, effectiveProvider);
+        const providerConfig = await this.providerFactory.getProviderConfigFromDB(providerName).catch(() => null);
+        if (providerConfig) {
+          for (const id of failoverModels) {
+            if (id === effectiveProvider.model) continue;
+            try {
+              modelRegistry.register(id, this.providerFactory.buildProvider({ ...providerConfig, defaultModel: id }));
+            } catch (err) {
+              this.logger.warn(`Failed to build failover provider for model ${id}: ${extractActualErrorMessage(err)}`);
+            }
+          }
+        } else {
+          this.logger.warn('failoverModels configured but provider config unavailable — failover disabled');
+          modelRegistry = undefined;
+        }
+        if (modelRegistry) {
+          modelRouting = { failoverModels };
+        }
+      }
+
       // P0-6: bind context sources to the session's project root (falls back
       // to the global workspaceRoot) — NOT always the global config value.
       const workspaceRoot = root;
@@ -346,11 +427,23 @@ export class AgentService {
       // prior-turn history (P0-1). Hydrated from the DB transcript below.
       const sessionState = new InMemorySessionState();
       if (sessionId) {
-        await this.hydrateSessionState(sessionState, sessionId);
+        await this.hydrateSessionState(sessionState, sessionId, settings?.historyLimit);
       }
 
+      // P7.1: unified ContextBudget — computed once, fed to kernelConfig
+      // (normalized + frozen by kernel) and the compressor (tokenBudget =
+      // maxContextTokens × compactionThreshold, aligning its internal trigger
+      // with the run-loop's window×ratio).
+      const contextBudget = deriveContextBudget({
+        ...(settings?.maxContextTokens && settings.maxContextTokens > 0
+          ? { maxContextTokens: settings.maxContextTokens }
+          : {}),
+        compactionThreshold:
+          settings?.compactionThreshold ?? this.settingsService.getSettings().compactionThreshold,
+      });
+
       const kernelConfig: AgentKernelConfig = {
-        model: provider,
+        model: effectiveProvider,
         store: this.runEventStore,
         sessionStore: this.sessionStore,
         sessionState,
@@ -359,24 +452,25 @@ export class AgentService {
 
         // Model settings (nested pattern — aligned with SDK v0.7.0)
         modelSettings: {
-          temperature: settings?.temperature ?? this.configService.get<number>('agent.temperature', 0.7),
-          topP: settings?.topP ?? this.configService.get<number>('agent.topP', 1.0),
+          temperature: settings?.temperature ?? 0.7,
+          topP: settings?.topP ?? 1.0,
           ...(settings?.toolChoice !== undefined ? { toolChoice: settings.toolChoice } : {}),
           parallelToolCalls: settings?.parallelToolCalls ?? true,
           ...(settings?.frequencyPenalty !== undefined ? { frequencyPenalty: settings.frequencyPenalty } : {}),
           ...(settings?.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
         },
 
-        // Limits
-        maxSteps: settings?.maxSteps ?? this.configService.get<number>('agent.maxSteps', 30),
-        maxTokens: settings?.maxTokens ?? this.configService.get<number>('agent.maxTokens', 4096),
-        stepTimeout: settings?.stepTimeout ?? this.configService.get<number>('agent.stepTimeout', 120_000),
+        // Limits (env is seeded into AgentSettingsService defaults — P4.6;
+        // the configService legs here were dead: settings always full).
+        maxSteps: settings?.maxSteps ?? 30,
+        maxTokens: settings?.maxTokens ?? 4096,
+        stepTimeout: settings?.stepTimeout ?? 120_000,
         maxToolCallsPerStep: settings?.maxToolCallsPerStep ?? 10,
         maxConcurrentToolCalls: settings?.maxConcurrentToolCalls ?? 5,
 
         // Resilience
         circuitBreaker: this.agentToolkit.getCircuitBreaker() as any,
-        doomLoopThreshold: settings?.doomLoopThreshold ?? this.configService.get<number>('agent.doomLoopThreshold', 3),
+        doomLoopThreshold: settings?.doomLoopThreshold ?? 3,
         maxRetries: settings?.maxRetries ?? 3,
         retryBackoffMs: settings?.backoffMs ?? 1000,
         maxRetryBackoffMs: settings?.maxBackoffMs ?? 30000,
@@ -386,11 +480,21 @@ export class AgentService {
         maxSelfCorrectAttempts: settings?.maxSelfCorrectAttempts ?? 1,
 
         // Thinking
-        thinkingBudget: settings?.thinkingBudget ?? this.configService.get<number>('agent.thinkingBudget', 1024),
+        thinkingBudget: settings?.thinkingBudget ?? 1024,
 
-        // Context management
-        compactionThreshold: settings?.compactionThreshold ?? 0.75,
-        compactor: new ContextCompressor(),
+        // Context management (P6.6: ratio 0-1; live default instead of a
+        // silent 0.75 literal)
+        compactionThreshold:
+          settings?.compactionThreshold ?? this.settingsService.getSettings().compactionThreshold,
+        // P7.1: unified ContextBudget — single source for kernel normalization
+        // + compressor (computed once above). maxContextTokens seeds the
+        // budget window; 0/undefined → SDK default 128_000. Other budget
+        // fields (sanitizeLimitChars, maxToolOutputChars, maxSubagentOutputChars)
+        // keep SDK defaults until per-field settings are added.
+        contextBudget: contextBudget,
+        // P7.1: compressor tokenBudget = maxContextTokens × compactionThreshold
+        // (aligns its internal trigger with the run-loop's window×ratio).
+        compactor: new ContextCompressor(budgetToCompressorFields(contextBudget)),
 
         // Sub-agents
         maxSubAgentDepth: settings?.maxSubAgentDepth ?? 3,
@@ -398,22 +502,37 @@ export class AgentService {
         // Workspace
         workspaceRoot,
 
-        // Permissions
+        // Guardrails — settings-driven (P3.2)
+        ...(() => {
+          const built = buildKernelGuardrails(settings ?? {});
+          if (built.invalidPatterns.length > 0) {
+            this.logger.warn(
+              `Skipping invalid guardrail blocklist patterns: ${built.invalidPatterns.join(' | ')}`,
+            );
+          }
+          return built.config;
+        })(),
+
+        // Permissions (SC3: live from settings — env is only their seed)
         permissions: {
           approvalStore: this.agentToolkit.getApprovalStore(),
           autoApprovalEnabled: permissionMode !== 'ask',
-          // Wired from agent.approvalTimeoutMs (env AGENT_APPROVAL_TIMEOUT_MS).
-          approvalTimeoutMs: this.configService.get<number>('agent.approvalTimeoutMs', 120_000),
-          globalPermissionRules: this.configService.get<Record<string, string | Record<string, string>>>('agent.globalPermissionRules'),
+          approvalTimeoutMs:
+            settings?.approvalTimeoutMs ?? this.settingsService.getSettings().approvalTimeoutMs,
+          globalPermissionRules:
+            settings?.globalPermissionRules ??
+            this.settingsService.getSettings().globalPermissionRules,
           permissionRiskDefaults:
             permissionMode === 'full'
               ? {
-                  ...(this.configService.get<Record<string, string>>('agent.permissionRiskDefaults') ?? {}),
+                  ...(settings?.permissionRiskDefaults ??
+                    this.settingsService.getSettings().permissionRiskDefaults),
                   // "Full access" label means what it says — lift the destructive
                   // floor (still subject to the AGENT_AUTO_APPROVAL kill switch).
                   destructive: 'allow',
                 }
-              : this.configService.get<Record<string, string>>('agent.permissionRiskDefaults'),
+              : (settings?.permissionRiskDefaults ??
+                this.settingsService.getSettings().permissionRiskDefaults),
         },
 
         // Sub-agents
@@ -423,6 +542,14 @@ export class AgentService {
         sandbox: {
           mode: settings?.sandboxMode ?? 'host',
         },
+
+        // P4.4 sessionTitleGenerator — generates a real title from the first
+        // prompt (SDK guard replaces empty/"New Session" titles after a
+        // successful run; the generator costs ~30 tokens once per session).
+        sessionTitleGenerator: createDefaultSessionTitleGenerator(effectiveProvider),
+
+        // P4.4 failoverModels — only wired when configured (see above).
+        ...(modelRegistry ? { modelRegistry, modelRouting } : {}),
 
         // Plugins — real manager (fireHook wired to registered plugins)
         pluginManager: this.pluginManager as never,
@@ -465,6 +592,13 @@ export class AgentService {
 
           // Priority 40: Workspace info (cwd, OS, arch, etc.)
           registry.register(createWorkspaceSource(workspaceRoot));
+
+          // Priority 45: Memory — session/working tiers + knowledge base (P3.4)
+          if (sessionId) {
+            registry.register(
+              createMemorySource(() => this.knowledgeService.buildMemoryBlock(sessionId, this.knowledgeFilterBySession.get(sessionId))),
+            );
+          }
 
           return registry;
         })(),
@@ -538,7 +672,7 @@ export class AgentService {
 
     // Fallback: no projectPath → workspaceRoot with explicit warn (not silent monorepo root).
     if (!projectPath) {
-      const ws = this.configService.get<string>('agent.workspaceRoot', '.');
+      const ws = settings?.workspaceRoot ?? this.settingsService.getSettings().workspaceRoot;
       this.logger.warn(
         `No projectPath for session ${sessionId} — falling back to workspaceRoot=${ws}`,
       );
@@ -547,11 +681,19 @@ export class AgentService {
       }
     }
 
+    // P4.5: apply the composer knowledge selection for this run (absent/empty
+    // = all entries). Read by the memory source during systemContext reconcile.
+    const knowledgeIds = input.selection?.knowledge?.map((k) => k.id).filter(Boolean);
+    if (knowledgeIds && knowledgeIds.length > 0) {
+      this.knowledgeFilterBySession.set(sessionId, knowledgeIds);
+    } else {
+      this.knowledgeFilterBySession.delete(sessionId);
+    }
+
     // runId MUST equal handle.runId so agent_runs joins run_events in trajectory.
     const handle = kernel.createRunHandle(prompt, ctx, sessionId);
     const runId = handle.runId as string;
 
-    this.agentToolkit.recordTimelineEvent(runId, 'run.started', { sessionId });
     this.trackingService.startRun({
       runId,
       sessionId,
@@ -565,18 +707,24 @@ export class AgentService {
     // unstoppable (LM Studio kept generating after cancel).
     this.activeHandles.set(runId, handle);
     handle.completed.then(
-      () => this.activeHandles.delete(runId),
-      () => this.activeHandles.delete(runId),
-    ).catch(() => this.activeHandles.delete(runId));
+      () => {
+        this.activeHandles.delete(runId);
+        this.knowledgeFilterBySession.delete(sessionId);
+      },
+      () => {
+        this.activeHandles.delete(runId);
+        this.knowledgeFilterBySession.delete(sessionId);
+      },
+    ).catch(() => {
+      this.activeHandles.delete(runId);
+      this.knowledgeFilterBySession.delete(sessionId);
+    });
 
     try {
-      this.agentToolkit.recordTimelineEvent(runId, 'step.started', { step: 0 });
-
       // Tool executions are tracked by AgentGateway's eventBus subscription
       // (handle.events() only yields agent.started/completed/error — tool.*
       // flows through the EventBus, so draining here would never see them).
       const result = await handle.completed;
-      this.agentToolkit.recordTimelineEvent(runId, 'step.completed', { step: 0 });
 
       const durationMs = Date.now() - runStartedAt;
 
@@ -584,9 +732,10 @@ export class AgentService {
       // falling through would record a bogus 'succeeded' over the cancel.
       if (result.status === 'cancelled' || (result as { cancelled?: boolean }).cancelled === true) {
         this.logger.log(`Agent run cancelled for session ${sessionId}`);
-        this.trackingService.completeRun({
+        this.trackingService.completeRunFromResult({
           runId,
           status: 'cancelled',
+          result,
           durationMs,
           errorMessage: 'Run cancelled by user',
           stopReason: 'cancelled',
@@ -603,13 +752,11 @@ export class AgentService {
         const errorMsg = extractActualErrorMessage(result.error || 'Agent run failed');
         
         this.logger.error(`Agent run failed for session ${sessionId}`, errorMsg);
-        this.agentToolkit.recordTimelineEvent(runId, 'run.failed', {
-          error: errorMsg,
-        });
 
-        this.trackingService.completeRun({
+        this.trackingService.completeRunFromResult({
           runId,
           status: 'failed',
+          result,
           durationMs,
           errorMessage: errorMsg,
         });
@@ -626,29 +773,29 @@ export class AgentService {
     const messages = await this.sessionStore.listMessages(sessionId);
     const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
 
-    this.agentToolkit.recordTimelineEvent(runId, 'run.completed', { status: 'succeeded' });
-
-    // Record token usage in CostMeter for aggregation
-    const inputTokens = result.inputTokens || lastAssistantMsg?.tokens?.input || 0;
-    const outputTokens = result.outputTokens || lastAssistantMsg?.tokens?.output || 0;
-    const reasoningTokens = lastAssistantMsg?.tokens?.reasoning || 0;
-    const modelId = lastAssistantMsg?.model;
-    if (inputTokens > 0 || outputTokens > 0) {
-      this.agentToolkit.recordTokenUsage(runId, inputTokens, outputTokens, modelId);
-    }
-
-    this.logger.log(`Agent run completed for session ${sessionId}: tokens in=${inputTokens}, out=${outputTokens}, cost=${lastAssistantMsg?.cost || 0}`);
-
-    this.trackingService.completeRun({
+    // P6.1: ONE payload builder — kernel usage > EventBus aggregates >
+    // last-assistant message (lowest priority). The returned payload feeds
+    // CostMeter, the persisted run row AND the HTTP response, so WS/HTTP
+    // runs report identical payload fields.
+    const payload = this.trackingService.completeRunFromResult({
       runId,
-      status: 'succeeded',
-      inputTokens: result.inputTokens || lastAssistantMsg?.tokens?.input,
-      outputTokens: result.outputTokens || lastAssistantMsg?.tokens?.output,
-      reasoningTokens: lastAssistantMsg?.tokens?.reasoning,
-      totalCost: lastAssistantMsg?.cost,
-      durationMs: result.durationMs || durationMs,
-      metadata: { model: lastAssistantMsg?.model, provider: lastAssistantMsg?.provider },
+      result,
+      durationMs,
+      fallback: {
+        inputTokens: lastAssistantMsg?.tokens?.input,
+        outputTokens: lastAssistantMsg?.tokens?.output,
+        reasoningTokens: lastAssistantMsg?.tokens?.reasoning,
+        cost: lastAssistantMsg?.cost,
+        model: lastAssistantMsg?.model,
+        provider: lastAssistantMsg?.provider,
+      },
     });
+
+    const inputTokens = payload.inputTokens ?? 0;
+    const outputTokens = payload.outputTokens ?? 0;
+    const reasoningTokens = payload.reasoningTokens ?? 0;
+
+    this.logger.log(`Agent run completed for session ${sessionId}: tokens in=${inputTokens}, out=${outputTokens}, cost=${payload.totalCost || 0}`);
 
     // Process turn to extract facts into memory
     try {
@@ -660,35 +807,35 @@ export class AgentService {
       this.logger.warn(`Memory processing failed for session ${sessionId}`, memError);
     }
 
-    const totalSteps = result.totalSteps;
-    const stopReason = (result as { stopReason?: string }).stopReason;
-    const totalTokens = inputTokens + outputTokens + reasoningTokens;
+    const totalSteps = result.usage?.totalSteps ?? result.totalSteps ?? 0;
+    const stopReason = payload.stopReason;
+    const totalTokens = payload.totalTokens ?? inputTokens + outputTokens + reasoningTokens;
 
     return {
       runId,
       status: 'succeeded',
       output: result.output || lastAssistantMsg?.content,
       totalSteps,
-      provider: lastAssistantMsg?.provider,
-      model: lastAssistantMsg?.model,
+      provider: payload.provider,
+      model: payload.model,
       inputTokens,
       outputTokens,
       reasoningTokens,
       totalTokens,
-      totalCost: lastAssistantMsg?.cost,
-      durationMs: result.durationMs || durationMs,
+      totalCost: payload.totalCost,
+      durationMs: payload.durationMs ?? durationMs,
       stopReason,
       // Nested usage block matching webui RunAgentResponse.usage
       usage: {
         totalSteps,
-        provider: lastAssistantMsg?.provider,
-        model: lastAssistantMsg?.model,
+        provider: payload.provider,
+        model: payload.model,
         inputTokens,
         outputTokens,
         reasoningTokens,
         totalTokens,
-        cost: lastAssistantMsg?.cost,
-        durationMs: result.durationMs || durationMs,
+        cost: payload.totalCost,
+        durationMs: payload.durationMs ?? durationMs,
         stopReason,
       },
     };
@@ -696,11 +843,8 @@ export class AgentService {
     const errorMsg = extractActualErrorMessage(error);
     this.logger.error(`Agent run failed for session ${sessionId}`, errorMsg);
     const durationMs = Date.now() - runStartedAt;
-    this.agentToolkit.recordTimelineEvent(runId, 'run.failed', {
-      error: errorMsg,
-    });
 
-    this.trackingService.completeRun({
+    this.trackingService.completeRunFromResult({
       runId,
       status: 'failed',
       durationMs,
@@ -743,13 +887,20 @@ export class AgentService {
       );
       const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
       if (!projectPath) {
-        const ws = this.configService.get<string>('agent.workspaceRoot', '.');
+        const ws = settings?.workspaceRoot ?? this.settingsService.getSettings().workspaceRoot;
         this.logger.warn(
           `No projectPath for streaming session ${sessionId} — falling back to workspaceRoot=${ws}`,
         );
         if (ctx.overrides && !ctx.overrides.workspaceRoot) {
           (ctx.overrides as Record<string, unknown>).workspaceRoot = ws;
         }
+      }
+      // P4.5: apply the composer knowledge selection for this run.
+      const knowledgeIds = input.selection?.knowledge?.map((k) => k.id).filter(Boolean);
+      if (knowledgeIds && knowledgeIds.length > 0) {
+        this.knowledgeFilterBySession.set(sessionId, knowledgeIds);
+      } else {
+        this.knowledgeFilterBySession.delete(sessionId);
       }
       const handle = kernel.createRunHandle(prompt, ctx, sessionId);
 
@@ -766,11 +917,18 @@ export class AgentService {
       this.activeHandles.set(runId, handle);
 
       handle.completed.then(
-        () => this.activeHandles.delete(runId),
-        () => this.activeHandles.delete(runId),
+        () => {
+          this.activeHandles.delete(runId);
+          this.knowledgeFilterBySession.delete(sessionId);
+        },
+        () => {
+          this.activeHandles.delete(runId);
+          this.knowledgeFilterBySession.delete(sessionId);
+        },
       ).catch((err) => {
         this.logger.error(`Stream handle error for run ${runId}`, err);
         this.activeHandles.delete(runId);
+        this.knowledgeFilterBySession.delete(sessionId);
       });
 
       return { handle, runId };
@@ -791,7 +949,7 @@ export class AgentService {
       // Persist terminal state NOW — if the in-flight LLM call never unwinds
       // (or the process dies mid-cancel), the run must not stay "running".
       // The completion path re-writes the same terminal status later.
-      this.trackingService.completeRun({
+      this.trackingService.completeRunFromResult({
         runId,
         status: 'cancelled',
         errorMessage: 'Run cancelled by user',
@@ -805,7 +963,7 @@ export class AgentService {
     if (status === 'running' || !status) {
       // No live handle but the row still says running (lost handle registry /
       // zombie row) — persist a terminal status so the UI is never stuck.
-      this.trackingService.completeRun({
+      this.trackingService.completeRunFromResult({
         runId,
         status: 'cancelled',
         errorMessage: 'Run cancelled by user',

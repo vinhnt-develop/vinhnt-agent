@@ -62,14 +62,20 @@ export class AgentKnowledgeService {
   /**
    * Build memory block for system prompt injection.
    * Combines SDK memory (working/session tiers) with knowledge base entries.
+   * P4.5: when `includeIds` is provided (composer knowledge selection), only
+   * those knowledge entries are included; SDK memory is always kept.
    */
-  async buildMemoryBlock(sessionId: string): Promise<MemoryEntry[]> {
+  async buildMemoryBlock(sessionId: string, includeIds?: readonly string[]): Promise<MemoryEntry[]> {
     try {
       const engine = this.getEngine(sessionId);
       const sdkMemory = engine.buildMemoryBlock();
 
       // Also fetch knowledge base entries
-      const knowledgeEntries = await this.knowledgeService.findAll();
+      let knowledgeEntries = await this.knowledgeService.findAll();
+      if (includeIds && includeIds.length > 0) {
+        const idSet = new Set(includeIds);
+        knowledgeEntries = knowledgeEntries.filter((k) => idSet.has(String(k.id)));
+      }
       const knowledgeMemory: MemoryEntry[] = knowledgeEntries
         .filter((k) => !k.deletedAt)
         .map((k) => ({

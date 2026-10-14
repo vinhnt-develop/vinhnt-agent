@@ -13,7 +13,6 @@ import {
   OpenAICompatibleProvider,
   type OpenAICompatibleProviderOptions,
 } from '@vinhnt-sdk/provider-openai-compatible';
-import { TokenMeter } from '@vinhnt-sdk/llm';
 import { ProviderConfigService } from '@/modules/provider-config/services/provider-config.service';
 
 export interface ProviderConfig {
@@ -50,7 +49,6 @@ interface RawModelList {
 export class ProviderFactory {
   private readonly logger = new Logger(ProviderFactory.name);
   private cache = new Map<string, CacheEntry>();
-  private readonly tokenMeter = new TokenMeter();
   private readonly modelCache = new Map<string, { models: readonly DiscoveredModel[]; expiresAt: number }>();
   private readonly MODEL_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -58,24 +56,6 @@ export class ProviderFactory {
     @Inject(DATABASE_CONNECTION) private readonly db: DatabaseConnection,
     private readonly providerConfigService: ProviderConfigService,
   ) {}
-
-  getTokenMeter(): TokenMeter {
-    return this.tokenMeter;
-  }
-
-  estimateTokens(
-    messages: Array<{ role: string; content: string }>,
-    tools?: Array<{ name: string; description: string }>,
-  ) {
-    return this.tokenMeter.estimateRequest(messages, tools);
-  }
-
-  measurePressure(usage: { promptTokens: number }, contextLimit: number) {
-    return this.tokenMeter.measurePressure(
-      { promptTokens: usage.promptTokens, completionTokens: 0 },
-      contextLimit,
-    );
-  }
 
   /**
    * Get provider config from local SQLite database.
@@ -100,6 +80,7 @@ export class ProviderFactory {
         baseUrl: config.baseUrl || '',
         apiKey: config.apiKey || '',
         defaultModel: (config.configs?.defaultModel as string | undefined) || undefined,
+        contextLimit: (config.configs?.contextLimit as number | undefined) || undefined,
         pricing: config.pricing || undefined,
       };
     } catch (error) {
@@ -160,6 +141,7 @@ export class ProviderFactory {
       providerName: config.provider,
       timeoutMs: 120_000,
       retry: { maxRetries: 3, baseBackoffMs: 1000, maxBackoffMs: 30_000 },
+      ...(config.contextLimit ? { contextLimit: config.contextLimit } : {}),
       ...(debugWire
         ? {
             onWireRequest: (url: string, body: unknown) => {

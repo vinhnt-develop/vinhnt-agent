@@ -3,9 +3,10 @@ import { infrastructure } from './infrastructure';
 import { modules } from './modules';
 import { CoreModule } from './core';
 import { ConfigModule } from './configuration';
+import { KernelSettingsModule } from './shared';
 
 @Module({
-  imports: [ConfigModule, CoreModule, ...infrastructure, ...modules],
+  imports: [ConfigModule, KernelSettingsModule, CoreModule, ...infrastructure, ...modules],
   controllers: [],
   providers: [],
 })

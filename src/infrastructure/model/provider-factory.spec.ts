@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProviderFactory, type ProviderConfig } from './provider-factory';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { ProviderConfigService } from '@/modules/provider-config/services/provider-config.service';
 
 jest.mock('@vinhnt-sdk/provider-openai-compatible', () => ({
   OpenAICompatibleProvider: jest.fn().mockImplementation(() => ({
@@ -11,16 +12,6 @@ jest.mock('@vinhnt-sdk/provider-openai-compatible', () => ({
     capabilities: { streaming: true, toolCalling: true },
     generate: jest.fn(),
     stream: jest.fn(),
-  })),
-}));
-
-jest.mock('@vinhnt-sdk/llm', () => ({
-  TokenMeter: jest.fn().mockImplementation(() => ({
-    estimateRequest: jest.fn().mockReturnValue(100),
-    estimateMessage: jest.fn().mockReturnValue(50),
-    estimateText: jest.fn().mockReturnValue(25),
-    measurePressure: jest.fn().mockReturnValue(0.5),
-    projectNextRequest: jest.fn().mockReturnValue(150),
   })),
 }));
 
@@ -40,6 +31,14 @@ describe('ProviderFactory', () => {
       providers: [
         ProviderFactory,
         { provide: DATABASE_CONNECTION, useValue: mockDb },
+        {
+          provide: ProviderConfigService,
+          useValue: {
+            findByProvider: jest.fn().mockResolvedValue([]),
+            findDefault: jest.fn().mockResolvedValue(null),
+            findEnabled: jest.fn().mockResolvedValue([]),
+          },
+        },
       ],
     }).compile();
 

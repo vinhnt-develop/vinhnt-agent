@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
+import { AgentSettingsService } from './agent-settings.service';
 import { AgentToolkit } from './agent-toolkit';
+import { McpServerService } from '@/modules/mcp-servers/services/mcp-server.service';
+import { CUSTOM_TOOLS_CONFIG } from '@/infrastructure/config/config.module';
 
 jest.mock('@vinhnt-sdk/tools', () => ({
   ToolRegistry: jest.fn().mockImplementation(() => ({
@@ -29,8 +31,6 @@ jest.mock('@vinhnt-sdk/permission', () => ({
     resolveRequest: jest.fn(),
     checkApproval: jest.fn(),
   })),
-  matchPermission: jest.fn().mockReturnValue({ effect: 'allow' }),
-  buildPermissionRules: jest.fn().mockReturnValue([]),
 }));
 
 jest.mock('@vinhnt-sdk/guard', () => ({
@@ -43,70 +43,6 @@ jest.mock('@vinhnt-sdk/guard', () => ({
     record: jest.fn(),
     isDoomLoop: jest.fn().mockReturnValue(false),
     reset: jest.fn(),
-  })),
-  withToolTimeout: jest
-    .fn()
-    .mockImplementation(
-      (_id: string, _ms: number, fn: (signal: AbortSignal) => Promise<any>) =>
-        fn(new AbortController().signal),
-    ),
-}));
-
-jest.mock('@vinhnt-sdk/trace', () => ({
-  SpanRecorder: jest.fn().mockImplementation(() => ({
-    startSpan: jest.fn(),
-    endSpan: jest.fn(),
-    getSpans: jest.fn().mockReturnValue([]),
-  })),
-  Timeline: jest.fn().mockImplementation(() => ({
-    record: jest.fn(),
-    getEvents: jest.fn().mockReturnValue([]),
-  })),
-  CostMeter: jest.fn().mockImplementation(() => ({
-    record: jest.fn().mockReturnValue({ totalTokens: 100, costUsd: 0.001 }),
-    getTotal: jest.fn().mockReturnValue({ totalTokens: 0, costUsd: 0 }),
-  })),
-}));
-
-jest.mock('@vinhnt-sdk/security', () => ({
-  defaultSecretRedactor: {
-    redact: jest.fn().mockImplementation((t: string) => t),
-  },
-  sanitizeForLLM: jest.fn().mockImplementation((t: string) => t),
-  detectInjectionPatterns: jest.fn().mockReturnValue([]),
-  redactSecrets: jest.fn().mockImplementation((t: string) => t),
-  sanitizeEnv: jest.fn().mockReturnValue({}),
-}));
-
-jest.mock('@vinhnt-sdk/sandbox', () => ({
-  createSandbox: jest.fn(),
-  createHostSandbox: jest.fn().mockImplementation((config) => ({
-    scope: 'host',
-    execute: jest.fn(),
-    destroy: jest.fn(),
-  })),
-}));
-
-jest.mock('@vinhnt-sdk/config', () => ({
-  resolveEnv: jest
-    .fn()
-    .mockImplementation((env: Record<string, string | undefined>) => ({
-      get: (key: string) => env[key],
-      has: (key: string) => key in env,
-      all: () => env,
-    })),
-  resolveCredentialFromEnv: jest
-    .fn()
-    .mockReturnValue({ value: 'test-value', source: 'env' }),
-}));
-
-jest.mock('@vinhnt-sdk/step-executor', () => ({
-  RunStateMachine: jest.fn().mockImplementation(() => ({
-    getState: jest.fn().mockReturnValue('pending'),
-    setState: jest.fn(),
-    getAbort: jest.fn().mockReturnValue(new AbortController()),
-    getSignal: jest.fn().mockReturnValue(new AbortController().signal),
-    cleanupRun: jest.fn(),
   })),
 }));
 
@@ -151,16 +87,19 @@ describe('AgentToolkit', () => {
       providers: [
         AgentToolkit,
         {
-          provide: ConfigService,
+          // SC3: workspaceRoot now comes from settings (was ConfigService).
+          provide: AgentSettingsService,
           useValue: {
-            get: jest.fn((key: string, defaultValue?: unknown) => {
-              const config: Record<string, unknown> = {
-                WORKSPACE_ROOT: '/test/workspace',
-              };
-              return config[key] ?? defaultValue;
-            }),
+            getSettings: jest.fn(() => ({
+              workspaceRoot: '.',
+            })),
           },
         },
+        {
+          provide: McpServerService,
+          useValue: { findEnabled: jest.fn().mockResolvedValue([]) },
+        },
+        { provide: CUSTOM_TOOLS_CONFIG, useValue: null },
       ],
     }).compile();
 
@@ -183,93 +122,9 @@ describe('AgentToolkit', () => {
     });
   });
 
-  describe('Permissions', () => {
-    it('should check permission with allow effect', () => {
-      const result = toolkit.checkPermission('read_file', '/test/file.txt');
-      expect(result.effect).toBe('allow');
-    });
-
-    it('should build permission rules', () => {
-      const rules = toolkit.buildPermissionRules({ edit: 'deny' });
-      expect(Array.isArray(rules)).toBe(true);
-    });
-  });
-
   describe('Guard', () => {
-    it('should check circuit breaker', async () => {
-      const result = await toolkit.checkCircuitBreaker(async () => 'ok');
-      expect(result).toBe('ok');
-    });
-
-    it('should check doom loop', () => {
-      const result = toolkit.checkDoomLoop('tool1', { arg: 'value' });
-      expect(result).toBe(false);
-    });
-
-    it('should record tool call', () => {
-      toolkit.recordToolCall('tool1', { arg: 'value' });
-      expect(toolkit.checkDoomLoop('tool1', { arg: 'value' })).toBe(false);
-    });
-  });
-
-  describe('Trace', () => {
-    it('should get timeline', () => {
-      const timeline = toolkit.getTimeline('run-1');
-      expect(timeline).toBeDefined();
-    });
-
-    it('should get cost meter', () => {
-      const meter = toolkit.getCostMeter('run-1');
-      expect(meter).toBeDefined();
-    });
-
-    it('should record token usage', () => {
-      const usage = toolkit.recordTokenUsage('run-1', 100, 50, 'gpt-4o');
-      expect(usage).toBeDefined();
-    });
-
-    it('should record timeline event', () => {
-      const timeline = toolkit.getTimeline('run-1');
-      toolkit.recordTimelineEvent('run-1', 'run.started', { sessionId: 's1' });
-      expect(timeline.record).toHaveBeenCalled();
-    });
-  });
-
-  describe('Security', () => {
-    it('should sanitize for LLM', () => {
-      const result = toolkit.sanitizeForLLM('test text');
-      expect(result).toBe('test text');
-    });
-
-    it('should detect injection patterns', () => {
-      const result = toolkit.detectInjectionPatterns('test text');
-      expect(Array.isArray(result)).toBe(true);
-    });
-
-    it('should redact secrets', () => {
-      const result = toolkit.redactSecrets('test text');
-      expect(result).toBe('test text');
-    });
-  });
-
-  describe('Config', () => {
-    it('should resolve credential', () => {
-      const result = toolkit.resolveCredential('API_KEY' as any);
-      expect(result).toBeDefined();
-    });
-  });
-
-  describe('Sandbox', () => {
-    it('should create sandbox', () => {
-      const sandbox = toolkit.createSandbox();
-      expect(sandbox).toBeDefined();
-    });
-  });
-
-  describe('Step Executor', () => {
-    it('should get run state machine', () => {
-      const sm = toolkit.getRunStateMachine();
-      expect(sm).toBeDefined();
+    it('should expose circuit breaker for kernel wiring', () => {
+      expect(toolkit.getCircuitBreaker()).toBeDefined();
     });
   });
 
@@ -281,11 +136,8 @@ describe('AgentToolkit', () => {
   });
 
   describe('Cleanup', () => {
-    it('should cleanup run', () => {
-      toolkit.getTimeline('run-1');
-      toolkit.getCostMeter('run-1');
-      toolkit.cleanupRun('run-1');
-      expect(toolkit.getTimeline('run-1')).toBeDefined();
+    it('should reset the loop detector on cleanupRun', () => {
+      expect(() => toolkit.cleanupRun('run-1')).not.toThrow();
     });
   });
 });

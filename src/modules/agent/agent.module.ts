@@ -6,7 +6,12 @@ import { McpServersModule } from '@/modules/mcp-servers';
 import { KnowledgeModule } from '@/modules/knowledge/knowledge.module';
 import { ProjectPathModule } from '@/shared';
 import { AgentController, AgentSettingsController } from './controllers';
-import { AgentService, AgentToolkit, AgentSettingsService } from './services';
+import {
+  AgentService,
+  AgentToolkit,
+  AgentSettingsService,
+  AgentOtlpService,
+} from './services';
 import { AgentRunTrackingService } from './services/agent-run-tracking.service';
 import { AgentRunRepository } from './repositories/agent-run.repository';
 import { ToolExecutionRepository } from './repositories/tool-execution.repository';
@@ -27,6 +32,7 @@ import { SessionRepository } from '@/modules/session/repositories/session.reposi
     AgentService,
     AgentToolkit,
     AgentSettingsService,
+    AgentOtlpService,
     AgentGateway,
     AgentRunTrackingService,
     AgentRunRepository,

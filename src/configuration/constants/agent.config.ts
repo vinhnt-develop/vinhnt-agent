@@ -9,6 +9,12 @@ function safeJsonParse<T>(value: string | undefined, fallback: T): T {
   }
 }
 
+function safeNumber(value: string | undefined, fallback: number): number {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export const agentConfig = registerAs('agent', () => ({
   workspaceRoot: process.env.AGENT_WORKSPACE_ROOT || '.',
   maxSteps: parseInt(process.env.AGENT_MAX_STEPS || '30', 10),
@@ -16,6 +22,11 @@ export const agentConfig = registerAs('agent', () => ({
   stepTimeout: parseInt(process.env.AGENT_STEP_TIMEOUT || '120000', 10),
   doomLoopThreshold: parseInt(process.env.AGENT_DOOM_LOOP_THRESHOLD || '3', 10),
   thinkingBudget: parseInt(process.env.AGENT_THINKING_BUDGET || '1024', 10),
+  // P4.6: seed kernel-settings defaults (Settings UI overrides env; env
+  // overrides the literal fallbacks below). Previously unregistered →
+  // configService.get('agent.temperature') always returned the fallback.
+  temperature: safeNumber(process.env.AGENT_TEMPERATURE, 0.7),
+  topP: safeNumber(process.env.AGENT_TOP_P, 1.0),
   // Kill switch: AGENT_AUTO_APPROVAL=false forces ask for every run regardless
   // of permissionMode. Otherwise the kernel setting permissionMode (default
   // "ask"; composer can override per run with "edit"/"full") decides.
@@ -32,6 +43,10 @@ export const agentConfig = registerAs('agent', () => ({
     process.env.AGENT_PERMISSION_RISK_DEFAULTS,
     undefined,
   ),
+  // P6.4: OTLP/HTTP traces endpoint seed — '' = run-span export disabled.
+  otlpEndpoint: process.env.AGENT_OTLP_ENDPOINT || '',
+  // P7.1: ContextBudget.maxContextTokens seed (0 = disabled → SDK default 128_000).
+  maxContextTokens: parseInt(process.env.AGENT_MAX_CONTEXT_TOKENS || '128000', 10),
 }));
 
 export const syncConfig = registerAs('sync', () => ({

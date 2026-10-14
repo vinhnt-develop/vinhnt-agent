@@ -9,6 +9,81 @@ interface PendingToolExecution {
   runId?: string;
 }
 
+/** Per-run usage facts observed on the EventBus before terminal completion. */
+interface RunUsageAccum {
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalCost?: number;
+  model?: string;
+  provider?: string;
+  stopReason?: string;
+}
+
+/**
+ * Structural view of a `handle.completed` result — the SDK's AgentRunResult
+ * nests metrics under `usage`, but call sites historically also read flat
+ * legacy fields, so both are accepted.
+ */
+interface CompletedRunResultLike {
+  status?: string;
+  cancelled?: boolean;
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  durationMs?: number;
+  stopReason?: string;
+  usage?: {
+    totalSteps?: number;
+    durationMs?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    reasoningTokens?: number;
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    totalTokens?: number;
+    cost?: number;
+    toolCallsCount?: number;
+    model?: string;
+    provider?: string;
+    stopReason?: string;
+  };
+}
+
+/** Full terminal payload every call site funnels through (P6.1). */
+export interface CompleteRunPayload {
+  runId: string;
+  status: 'succeeded' | 'failed' | 'cancelled';
+  inputTokens?: number;
+  outputTokens?: number;
+  reasoningTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+  totalCost?: number;
+  durationMs?: number;
+  toolCallsCount?: number;
+  errorMessage?: string;
+  stopReason?: string;
+  metadata?: Record<string, unknown>;
+  model?: string;
+  provider?: string;
+}
+
+/**
+ * First non-zero numeric source. `0` means "provider didn't report" (LM
+ * Studio user-message limitation) — fall through, matching the `||` chains
+ * the call sites used before consolidation.
+ */
+function firstNonZero(...values: Array<number | undefined>): number | undefined {
+  for (const value of values) {
+    if (value) return value;
+  }
+  return undefined;
+}
+
 @Injectable()
 export class AgentRunTrackingService {
   private readonly logger = new Logger(AgentRunTrackingService.name);
@@ -18,6 +93,8 @@ export class AgentRunTrackingService {
   private readonly runSessions = new Map<string, string>();
   /** runId → tool invocations observed so far (fallback for tool_calls_count). */
   private readonly runToolCounts = new Map<string, number>();
+  /** runId → usage facts from token.counted / model.cost / run.completed events. */
+  private readonly runUsageAccums = new Map<string, RunUsageAccum>();
 
   constructor(
     private readonly agentRunRepository: AgentRunRepository,
@@ -149,10 +226,164 @@ export class AgentRunTrackingService {
 
       this.runSessions.delete(data.runId);
       this.runToolCounts.delete(data.runId);
+      this.runUsageAccums.delete(data.runId);
       this.logger.debug(`Agent run completed: ${data.runId} status=${data.status}`);
     } catch (error) {
       this.logger.warn(`Failed to track run completion: ${error}`);
     }
+  }
+
+  /**
+   * Accumulate per-run usage facts observed on the EventBus (token.counted /
+   * model.cost / run.completed) so terminal completion can persist reasoning +
+   * cache tokens, cost and stopReason on BOTH WS and HTTP paths (P6.1).
+   * Numeric fields SUM across per-call events; model/provider/stopReason are
+   * last-wins. Cleared by completeRun.
+   */
+  recordRunUsage(
+    runId: string,
+    data: {
+      inputTokens?: number;
+      outputTokens?: number;
+      reasoningTokens?: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      totalCost?: number;
+      model?: string;
+      provider?: string;
+      stopReason?: string;
+    },
+  ): void {
+    try {
+      if (Object.values(data).every((value) => value === undefined)) return;
+      const current = this.runUsageAccums.get(runId) ?? {};
+      const sum = (a?: number, b?: number): number | undefined =>
+        b === undefined ? a : a === undefined ? b : a + b;
+      this.runUsageAccums.set(runId, {
+        inputTokens: sum(current.inputTokens, data.inputTokens),
+        outputTokens: sum(current.outputTokens, data.outputTokens),
+        reasoningTokens: sum(current.reasoningTokens, data.reasoningTokens),
+        cacheReadTokens: sum(current.cacheReadTokens, data.cacheReadTokens),
+        cacheWriteTokens: sum(current.cacheWriteTokens, data.cacheWriteTokens),
+        totalCost: sum(current.totalCost, data.totalCost),
+        model: data.model ?? current.model,
+        provider: data.provider ?? current.provider,
+        stopReason: data.stopReason ?? current.stopReason,
+      });
+    } catch (error) {
+      this.logger.warn(`Failed to accumulate run usage for ${runId}: ${error}`);
+    }
+  }
+
+  /**
+   * Single terminal-completion entry point (P6.1) — every call site in
+   * AgentService/AgentGateway funnels here so WS and HTTP runs persist the
+   * SAME full payload instead of partial subsets (the WS path used to drop
+   * reasoning/cache tokens, cost and stopReason entirely).
+   *
+   * Per-field source priority (first hit wins):
+   *   kernel `usage` → EventBus aggregates (token.counted/model.cost/run.completed)
+   *   → fallback (last-assistant message, HTTP path) → undefined.
+   *
+   * Returns the payload that was persisted (callers reuse it for the WS
+   * `run:completed` emit / HTTP response instead of re-reading `result`).
+   */
+  completeRunFromResult(data: {
+    runId: string;
+    /** Explicit terminal status; derived from `result` when omitted. */
+    status?: 'succeeded' | 'failed' | 'cancelled';
+    /** `handle.completed` value — omitted on catch paths where it is out of scope. */
+    result?: unknown;
+    /** Wall-clock duration fallback when neither usage nor result carry one. */
+    durationMs?: number;
+    errorMessage?: string;
+    stopReason?: string;
+    /** Session last-assistant-message values (HTTP path) — lowest-priority source. */
+    fallback?: {
+      inputTokens?: number;
+      outputTokens?: number;
+      reasoningTokens?: number;
+      cost?: number;
+      model?: string;
+      provider?: string;
+    };
+    metadata?: Record<string, unknown>;
+  }): CompleteRunPayload {
+    const result = (data.result ?? {}) as CompletedRunResultLike;
+    const usage = result.usage;
+    const accum = this.runUsageAccums.get(data.runId);
+    const fallback = data.fallback;
+
+    const status: 'succeeded' | 'failed' | 'cancelled' =
+      data.status ??
+      (result.status === 'cancelled' || result.cancelled === true
+        ? 'cancelled'
+        : result.status === 'failed'
+          ? 'failed'
+          : 'succeeded');
+
+    const inputTokens = firstNonZero(
+      usage?.inputTokens,
+      result.inputTokens,
+      accum?.inputTokens,
+      fallback?.inputTokens,
+    );
+    const outputTokens = firstNonZero(
+      usage?.outputTokens,
+      result.outputTokens,
+      accum?.outputTokens,
+      fallback?.outputTokens,
+    );
+    const reasoningTokens = firstNonZero(
+      usage?.reasoningTokens,
+      result.reasoningTokens,
+      accum?.reasoningTokens,
+      fallback?.reasoningTokens,
+    );
+    const cacheReadTokens = firstNonZero(usage?.cacheReadTokens, accum?.cacheReadTokens);
+    const cacheWriteTokens = firstNonZero(usage?.cacheWriteTokens, accum?.cacheWriteTokens);
+    const hasTokens =
+      inputTokens !== undefined || outputTokens !== undefined || reasoningTokens !== undefined;
+    const totalTokens =
+      usage?.totalTokens ??
+      (hasTokens
+        ? (inputTokens ?? 0) + (outputTokens ?? 0) + (reasoningTokens ?? 0)
+        : undefined);
+    const totalCost = firstNonZero(usage?.cost, accum?.totalCost, fallback?.cost);
+    const model = usage?.model ?? accum?.model ?? fallback?.model;
+    const provider = usage?.provider ?? accum?.provider ?? fallback?.provider;
+    const stopReason =
+      data.stopReason ??
+      usage?.stopReason ??
+      accum?.stopReason ??
+      (status === 'cancelled' ? 'cancelled' : undefined);
+    // Kernel-measured loop duration beats wall-clock (post-processing skew).
+    const durationMs = usage?.durationMs ?? result.durationMs ?? data.durationMs;
+
+    const payload: CompleteRunPayload = {
+      runId: data.runId,
+      status,
+      inputTokens,
+      outputTokens,
+      reasoningTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      totalTokens,
+      totalCost,
+      durationMs,
+      toolCallsCount: usage?.toolCallsCount,
+      errorMessage: data.errorMessage,
+      stopReason,
+      metadata: {
+        ...data.metadata,
+        ...(model ? { model } : {}),
+        ...(provider ? { provider } : {}),
+      },
+      model,
+      provider,
+    };
+    this.completeRun(payload);
+    return payload;
   }
 
   /** Tool invocations observed so far for a run (undefined if unknown). */

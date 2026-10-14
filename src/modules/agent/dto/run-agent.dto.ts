@@ -11,6 +11,7 @@ import {
   IsArray,
 } from 'class-validator';
 import { Expose, Type } from 'class-transformer';
+import type { PermissionMode } from '@/shared/permission-mode';
 
 export class SelectedToolDto {
   @ApiProperty({ name: 'id', type: String, description: 'Tool ID', example: 'read_file' })
@@ -66,13 +67,6 @@ export class SelectionDto {
   @IsOptional()
   @Expose({ name: 'knowledge' })
   knowledge?: SelectedKnowledgeDto[];
-
-  @ApiPropertyOptional({ name: 'plugins', type: [String], description: 'Selected plugin IDs', example: ['web-search'] })
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  @Expose({ name: 'plugins' })
-  plugins?: string[];
 }
 
 export class RunAgentDto {
@@ -165,23 +159,6 @@ export class RunAgentDto {
   provider?: string;
 
   @ApiPropertyOptional({
-    name: 'workspaceId',
-    type: 'string',
-    description: 'Workspace ID for context isolation (optional)',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @IsString({
-    message: validateMessage.string('workspaceId'),
-    context: {
-      errorCode: VALIDATE_CODES.WORKSPACE_ID_STRING,
-      field: 'workspaceId',
-    },
-  })
-  @IsOptional()
-  @Expose({ name: 'workspaceId' })
-  workspaceId?: string;
-
-  @ApiPropertyOptional({
     name: 'permissionMode',
     type: 'string',
     enum: ['ask', 'edit', 'full'],
@@ -190,12 +167,12 @@ export class RunAgentDto {
   })
   @IsOptional()
   @Expose({ name: 'permissionMode' })
-  permissionMode?: 'ask' | 'edit' | 'full';
+  permissionMode?: PermissionMode;
 
   @ApiPropertyOptional({
     name: 'selection',
     type: SelectionDto,
-    description: 'User-selected resources for this run (tools, knowledge, plugins)',
+    description: 'User-selected resources for this run (tools, knowledge)',
   })
   @ValidateNested()
   @Type(() => SelectionDto)
