@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AgentKernelConfig } from '@vinhnt-sdk/core';
 import {
@@ -114,6 +114,19 @@ export interface RunAgentInput {
   };
 }
 
+/** Input for resuming a crashed/interrupted run (P4.2). */
+export interface ResumeRunInput {
+  runId: string;
+  /** Optional steering prompt; empty = pure continuation from checkpoint. */
+  prompt?: string;
+  model?: string;
+  provider?: string;
+  settings?: Partial<KernelSettings>;
+  projectPath?: string;
+  permissionMode?: PermissionMode;
+  selection?: RunAgentInput['selection'];
+}
+
 export interface RunAgentResult {
   runId: string;
   status: 'succeeded' | 'failed' | 'cancelled';
@@ -146,7 +159,7 @@ export interface RunAgentResult {
 }
 
 @Injectable()
-export class AgentService {
+export class AgentService implements OnModuleInit {
   private readonly logger = new Logger(AgentService.name);
   private kernels = new Map<
     string,
@@ -185,6 +198,26 @@ export class AgentService {
           | undefined,
     });
     this.agentToolkit.setPluginManager(this.pluginManager as never);
+  }
+
+  /**
+   * Boot recovery (P4.2): after a crash the DB still has agent_runs rows with
+   * status='running' but activeHandles is empty. Log them as resumable so the
+   * client can call POST /agent/resume; do NOT auto-restart (the kernel is
+   * per-provider/model and we don't know the original settings without the
+   * client payload).
+   */
+  async onModuleInit(): Promise<void> {
+    try {
+      const orphaned = this.trackingService.findRunningRuns();
+      if (orphaned.length > 0) {
+        this.logger.warn(
+          `Boot: ${orphaned.length} run(s) still marked 'running' in DB (likely interrupted by restart) — resumable via POST /agent/resume: ${orphaned.map((r) => r.id).join(', ')}`,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(`Boot recovery scan failed (non-fatal): ${extractActualErrorMessage(error)}`);
+    }
   }
 
   getEventBus() { return this.eventBus; }
@@ -990,6 +1023,143 @@ export class AgentService {
     if (!runId) return { cancelled: false, status: 'idle' };
     const result = await this.cancelRun(runId);
     return { ...result, runId };
+  }
+
+  /** True when this process holds a live handle for the run (P4.2 attach gate). */
+  isRunActive(runId: string): boolean {
+    return this.activeHandles.has(runId);
+  }
+
+  /**
+   * Resume a crashed/interrupted run from its durable checkpoint (P4.2).
+   *
+   * The SDK's `kernel.resumeRun` restores session state from run_events
+   * snapshots + messages (no run.started, no re-injection of the original
+   * prompt). An empty `prompt` = pure continuation; a non-empty prompt is a
+   * steering message appended as the latest user turn.
+   *
+   * Guards:
+   * - run row must exist and be status='running' (or missing → treat as
+   *   interrupted); terminal statuses → 409-style error.
+   * - reject if this process already holds a live handle (double-resume).
+   * - reject if a *different* live run is active for the same session.
+   *
+   * Does NOT call trackingService.startRun (row already exists → PK conflict).
+   */
+  async resumeRun(input: ResumeRunInput): Promise<RunAgentResult> {
+    const { runId, prompt = '', model, provider, settings, projectPath } = input;
+    this.logger.log(`Resuming run ${runId} (prompt=${prompt ? 'steering' : 'pure-continuation'})`);
+
+    const row = this.trackingService.getRunRow(runId);
+    if (!row) {
+      return { runId, status: 'failed', output: 'Run not found', totalSteps: 0 };
+    }
+    const status = row.status;
+    if (status && status !== 'running') {
+      return {
+        runId,
+        status: status as RunAgentResult['status'],
+        output: `Run already ${status} — cannot resume`,
+        totalSteps: 0,
+      };
+    }
+    if (this.activeHandles.has(runId)) {
+      return { runId, status: 'failed', output: 'Run is already active in this process', totalSteps: 0 };
+    }
+    const sessionId = row.sessionId ?? undefined;
+    if (!sessionId) {
+      return { runId, status: 'failed', output: 'Run has no sessionId — cannot resume', totalSteps: 0 };
+    }
+    const activeRun = this.trackingService.findActiveRunForSession(sessionId);
+    if (activeRun && activeRun.id !== runId) {
+      return {
+        runId,
+        status: 'failed',
+        output: `A different run (${activeRun.id}) is already active for session ${sessionId}`,
+        totalSteps: 0,
+      };
+    }
+
+    const runStartedAt = Date.now();
+    const resolvedModel = model ?? row.model ?? undefined;
+    const resolvedProvider = provider ?? row.provider ?? undefined;
+    // Do NOT hydrateSessionState — resumeRun restores its own per-run state.
+    const kernel = await this.getKernel(
+      resolvedModel,
+      resolvedProvider,
+      settings,
+      input.permissionMode,
+      sessionId,
+      projectPath,
+    );
+    const ctx = this.buildRequestContext(resolvedProvider, resolvedModel, projectPath, input.selection);
+
+    try {
+      const handle = await kernel.resumeRun(runId as never, prompt, ctx, sessionId);
+
+      // Adapt SDK RunHandle {completed: Promise<void>, abort()} to the
+      // activeHandles shape {cancel, isCancelled} that cancelRun expects.
+      let cancelledFlag = false;
+      const adapted = {
+        cancel: () => {
+          cancelledFlag = true;
+          handle.abort();
+        },
+        get isCancelled() {
+          return cancelledFlag;
+        },
+      };
+      this.activeHandles.set(runId, adapted);
+
+      handle.completed.then(
+        () => {
+          this.activeHandles.delete(runId);
+          this.knowledgeFilterBySession.delete(sessionId);
+        },
+        () => {
+          this.activeHandles.delete(runId);
+          this.knowledgeFilterBySession.delete(sessionId);
+        },
+      ).catch((err: unknown) => {
+        this.logger.error(`Resume handle error for run ${runId}`, err as never);
+        this.activeHandles.delete(runId);
+        this.knowledgeFilterBySession.delete(sessionId);
+      });
+
+      // resumeRun returns Promise<void> — no AgentRunResult. Wait for
+      // completion and derive terminal status; usage was already recorded
+      // by the EventBus subscription (recordRunUsage).
+      await handle.completed;
+      this.activeHandles.delete(runId);
+      this.knowledgeFilterBySession.delete(sessionId);
+
+      const finalStatus = cancelledFlag ? 'cancelled' : 'succeeded';
+      // Row already terminal from the EventBus run.completed path in most
+      // cases; this is a safety net for edge paths (e.g. empty continuation
+      // that exits immediately).
+      if (this.trackingService.getRunStatus(runId) === 'running') {
+        this.trackingService.completeRunFromResult({
+          runId,
+          status: finalStatus,
+          durationMs: Date.now() - runStartedAt,
+        });
+      }
+      return { runId, status: finalStatus, totalSteps: 0 };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Failed to resume run ${runId}: ${errorMsg}`);
+      this.activeHandles.delete(runId);
+      if (this.trackingService.getRunStatus(runId) === 'running') {
+        this.trackingService.completeRunFromResult({
+          runId,
+          status: 'failed',
+          errorMessage: errorMsg,
+        });
+      }
+      return { runId, status: 'failed', output: errorMsg, totalSteps: 0 };
+    } finally {
+      this.agentToolkit.cleanupRun(runId);
+    }
   }
 
   async getSessionMessages(sessionId: string) {

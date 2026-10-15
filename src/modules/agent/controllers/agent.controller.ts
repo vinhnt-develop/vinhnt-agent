@@ -86,6 +86,35 @@ export class AgentController {
     };
   }
 
+  @Post('resume')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resume a crashed/interrupted run from its durable checkpoint (P4.2)',
+  })
+  @ApiDataResponse(RunAgentResponseDto)
+  async resume(
+    @Body() body: { runId: string; prompt?: string; model?: string; provider?: string },
+  ): Promise<ApiResponse<RunAgentResponseDto>> {
+    if (!body?.runId) {
+      throw new BadRequestException('runId is required');
+    }
+    // sessionId/projectPath are resolved from the persisted run row inside
+    // resumeRun; the client may override model/provider for the resumed kernel.
+    const settings = this.settingsService.getSettings();
+    const result = await this.agentService.resumeRun({
+      runId: body.runId,
+      prompt: body.prompt ?? '',
+      model: body.model,
+      provider: body.provider,
+      settings,
+    });
+    return formatResponse.single(
+      RunAgentResponseDto,
+      result,
+      result.status === 'failed' ? 'Resume failed.' : 'Run resumed.',
+    );
+  }
+
   @Get('stats')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Get agent run statistics' })

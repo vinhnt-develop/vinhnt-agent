@@ -488,10 +488,62 @@ export class AgentGateway
       client.emit('run:attach', { sessionId, runId: null });
       return;
     }
+    // P4.2: only rebind when THIS process holds a live handle. A DB row that
+    // says 'running' after a restart is an orphan — the UI would spin forever
+    // waiting for events that will never come. Answer resumable:true so the
+    // client can offer Resume (POST /agent/resume) instead of hanging.
+    if (!this.agentService.isRunActive(active.id)) {
+      this.logger.log(
+        `Attach: run ${active.id} for session ${sessionId} is in DB but not live in this process — marking resumable`,
+      );
+      client.emit('run:attach', { sessionId, runId: null, resumable: true, resumableRunId: active.id });
+      return;
+    }
     this.runToClient.set(active.id, client.id);
     this.runToSession.set(active.id, sessionId);
     this.logger.log(`Attach: run ${active.id} rebound to ${client.id}`);
     client.emit('run:attach', { sessionId, runId: active.id });
+  }
+
+  /**
+   * P4.2: resume a crashed/interrupted run over WS. Reuses the same
+   * AgentService.resumeRun path as REST; events flow through the existing
+   * EventBus subscription (onModuleInit) so no new streaming plumbing.
+   */
+  @SubscribeMessage('run:resume')
+  async handleResume(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { runId: string; prompt?: string; model?: string; provider?: string; permissionMode?: PermissionMode },
+  ) {
+    try {
+      if (!data?.runId) {
+        client.emit('run:error', { error: 'runId is required to resume' });
+        return;
+      }
+      this.logger.log(`Resume requested by ${client.id} for run ${data.runId}`);
+      const settings = this.settingsService.getSettings();
+      const result = await this.agentService.resumeRun({
+        runId: data.runId,
+        prompt: data.prompt ?? '',
+        model: data.model,
+        provider: data.provider,
+        permissionMode: data.permissionMode,
+        settings,
+      });
+      if (result.status === 'failed') {
+        client.emit('run:error', { runId: data.runId, error: result.output ?? result.error ?? 'Resume failed' });
+        return;
+      }
+      // Bind this client to the resumed run so subsequent events route here.
+      this.runToClient.set(data.runId, client.id);
+      const sessionId = (result as { sessionId?: string }).sessionId;
+      if (sessionId) this.runToSession.set(data.runId, sessionId);
+      client.emit('run:resumed', { runId: data.runId, sessionId, status: result.status });
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Resume failed for run ${data.runId}: ${errorMsg}`);
+      client.emit('run:error', { runId: data.runId, error: errorMsg });
+    }
   }
 
   @SubscribeMessage('cancel')

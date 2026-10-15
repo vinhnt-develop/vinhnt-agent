@@ -122,6 +122,26 @@ export class AgentRunTrackingService {
     }
   }
 
+  /** Full persisted row for a run (for resume validation). */
+  getRunRow(runId: string): { id: string; sessionId: string | null; status: string | null; model?: string | null; provider?: string | null } | undefined {
+    try {
+      return this.agentRunRepository.findById(runId);
+    } catch (error) {
+      this.logger.warn(`Failed to read run row for ${runId}: ${error}`);
+      return undefined;
+    }
+  }
+
+  /** All runs still marked 'running' in the DB (boot recovery / resumable list). */
+  findRunningRuns(): Array<{ id: string; sessionId: string | null; status: string | null; model?: string | null; provider?: string | null }> {
+    try {
+      return this.agentRunRepository.findRunning();
+    } catch (error) {
+      this.logger.warn(`Failed to list running runs: ${error}`);
+      return [];
+    }
+  }
+
   startRun(data: {
     runId: string;
     sessionId: string;

@@ -88,6 +88,16 @@ export class AgentRunRepository {
       .get();
   }
 
+  /** All runs still marked 'running' (boot recovery / resumable discovery). */
+  findRunning() {
+    return this.db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.status, 'running'))
+      .orderBy(sql`${agentRuns.startedAt} DESC`)
+      .all();
+  }
+
   incrementToolCallsCount(id: string) {
     return this.db
       .update(agentRuns)
