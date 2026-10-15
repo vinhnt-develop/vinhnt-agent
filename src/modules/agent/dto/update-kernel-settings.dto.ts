@@ -96,6 +96,14 @@ export class UpdateKernelSettingsDto {
   @Max(1000000)
   contextLimit?: number;
 
+  /** Kernel context budget in tokens (P7.1); 0 = disabled → SDK default 128000. */
+  @ApiPropertyOptional({ example: 128000, minimum: 0, maximum: 10000000 })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(10000000)
+  maxContextTokens?: number;
+
   // ── Tool behavior ──────────────────────────────────────────────────────
 
   @ApiPropertyOptional({ enum: ['auto', 'none', 'required'] })
