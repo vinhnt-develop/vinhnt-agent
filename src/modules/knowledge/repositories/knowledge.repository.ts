@@ -111,4 +111,13 @@ export class KnowledgeRepository {
   async softDelete(id: string) {
     this.db.update(knowledgeEntries).set({ deletedAt: new Date().toISOString() }).where(eq(knowledgeEntries.id, id)).run();
   }
+
+  /** P3.5: persist (or clear) the vector embedding for an entry. */
+  async updateEmbedding(id: string, embedding: string | null, contentHash: string | null) {
+    this.db
+      .update(knowledgeEntries)
+      .set({ embedding, contentHash, updatedAt: new Date().toISOString() })
+      .where(eq(knowledgeEntries.id, id))
+      .run();
+  }
 }

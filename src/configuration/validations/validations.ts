@@ -11,6 +11,12 @@ export const validationSchema = Joi.object({
   // Unset → auth fails closed (reject all non-@Public routes).
   AUTH_SECRET: Joi.string().optional(),
 
+  // P3.5: knowledge embeddings (OpenAI-compatible /embeddings). Model defaults
+  // to gemini-embedding-001 (text-embedding-004 was removed upstream);
+  // provider resolves KNOWLEDGE_EMBEDDING_PROVIDER → default/first active.
+  KNOWLEDGE_EMBEDDING_MODEL: Joi.string().optional(),
+  KNOWLEDGE_EMBEDDING_PROVIDER: Joi.string().optional(),
+
   DATABASE_URL: Joi.string().required(),
 
   NODE_ENV: Joi.string()

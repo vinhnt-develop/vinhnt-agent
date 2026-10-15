@@ -1,6 +1,6 @@
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsIn, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Expose } from 'class-transformer';
+import { Expose, Transform } from 'class-transformer';
 
 export class CreateKnowledgeDto {
   @ApiProperty({ description: 'Knowledge key', example: 'project-setup', name: 'key', type: String })
@@ -136,6 +136,18 @@ export class KnowledgeResponseDto {
   @ApiProperty({ description: 'Is editable', example: true, name: 'isEditable', type: Boolean })
   @Expose({ name: 'isEditable' })
   isEditable?: boolean;
+
+  @ApiProperty({
+    description: 'Whether a vector embedding is stored (semantic search ready)',
+    example: true,
+    name: 'hasEmbedding',
+    type: Boolean,
+  })
+  @Expose({ name: 'hasEmbedding' })
+  @Transform(({ obj }) => Boolean((obj as { embedding?: unknown }).embedding), {
+    toClassOnly: true,
+  })
+  hasEmbedding?: boolean;
 
   @ApiProperty({ description: 'Creation timestamp (ISO 8601)', example: '2026-09-01T12:00:00.000Z', name: 'createdAt', type: String })
   @Expose({ name: 'createdAt' })
