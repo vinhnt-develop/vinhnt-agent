@@ -464,6 +464,36 @@ export class AgentGateway
     }
   }
 
+  /**
+   * P3.3: re-attach a live run to a new socket after a disconnect/reconnect.
+   * Events are routed via runToClient (socket-id keyed); handleDisconnect
+   * drops the mapping, so a mid-run blip orphans the run and the UI spins
+   * forever. The client emits run:attach with the sessionId; we rebind any
+   * still-active run (or answer runId: null when it already finished while
+   * the client was away — the client then finalizes from REST).
+   */
+  @SubscribeMessage('run:attach')
+  handleAttach(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId?: string },
+  ) {
+    const sessionId = data.sessionId;
+    if (!sessionId) {
+      client.emit('run:attach', { sessionId, runId: null });
+      return;
+    }
+    const active = this.trackingService.findActiveRunForSession(sessionId);
+    if (!active) {
+      this.logger.log(`Attach: no active run for session ${sessionId}`);
+      client.emit('run:attach', { sessionId, runId: null });
+      return;
+    }
+    this.runToClient.set(active.id, client.id);
+    this.runToSession.set(active.id, sessionId);
+    this.logger.log(`Attach: run ${active.id} rebound to ${client.id}`);
+    client.emit('run:attach', { sessionId, runId: active.id });
+  }
+
   @SubscribeMessage('cancel')
   async handleCancel(
     @ConnectedSocket() client: Socket,
