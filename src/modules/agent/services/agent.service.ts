@@ -18,6 +18,18 @@ import {
   // kernelConfig.contextBudget and the compressor (single source).
   deriveContextBudget,
   budgetToCompressorFields,
+  // P4.4: skills + sub-agent capability tools
+  InMemorySkillDefRegistry,
+  SkillParser,
+  SkillFileLoader,
+  createSkillTool,
+  createSkillSearchTool,
+  createSkillGuidanceSource,
+  createSpawnAgentTool,
+  createDelegateTool,
+  createCreateAgentTool,
+  createListAgentsTool,
+  createHandoffTool,
 } from '@vinhnt-sdk/core';
 import { ToolProviderRegistry } from '@vinhnt-sdk/tools';
 import type { AgentId, ModelProvider } from '@vinhnt-sdk/schema';
@@ -399,7 +411,29 @@ export class AgentService implements OnModuleInit {
       const memorySearchTool = createMemorySearchTool(this.sessionStore as any);
       const allTools = [...tools, memorySearchTool as any];
 
-      // Register code-reviewer sub-agent
+      // P4.4: discover skills from conventional dirs (~/.vnt/skills, workspace
+      // .vnt/.claude/.agents skills/) and register skill + skill_search tools.
+      // Workspace overrides global by name (SkillFileLoader.discover dedup).
+      const skillRegistry = new InMemorySkillDefRegistry(new SkillParser());
+      let discoveredSkillCount = 0;
+      try {
+        const skills = await new SkillFileLoader().discover(root);
+        await skillRegistry.load(skills);
+        discoveredSkillCount = skills.length;
+        if (skills.length > 0) {
+          this.logger.log(`P4.4: discovered ${skills.length} skill(s): ${skills.map((s) => s.manifest.name).join(', ')}`);
+        }
+      } catch (err) {
+        this.logger.warn(`P4.4: skill discovery failed (non-fatal): ${extractActualErrorMessage(err)}`);
+      }
+      allTools.push(
+        createSkillTool(skillRegistry) as any,
+        createSkillSearchTool(skillRegistry) as any,
+      );
+
+      // Register code-reviewer sub-agent + handoff tool (P4.4: the roster is
+      // only reachable when a handoff/delegate tool exists — previously the
+      // registry was a dead end).
       const codeReviewer = createAgent({
         id: 'code-reviewer' as AgentId,
         profile: {
@@ -411,6 +445,13 @@ export class AgentService implements OnModuleInit {
         permissions: { mode: 'subagent', maxSteps: 10 },
       });
       await this.agentRegistry.register(codeReviewer);
+      allTools.push(
+        createHandoffTool({
+          agentId: 'code-reviewer' as AgentId,
+          toolDescription:
+            'Hand off to the code-reviewer sub-agent for a focused security/correctness review of code, diffs, or design decisions. Returns actionable findings.',
+        }) as any,
+      );
 
       const provider = await this.providerFactory.getModelProvider(providerName);
 
@@ -633,13 +674,32 @@ export class AgentService implements OnModuleInit {
             );
           }
 
+          // Priority 50: Skill index (P4.4) — <available_skills> in system prompt
+          // so the LLM knows which skill names exist without calling skill_search.
+          registry.register(createSkillGuidanceSource(() => [...skillRegistry.list()]));
+
           return registry;
         })(),
       };
 
       const kernel = new AgentKernel(kernelConfig);
+
+      // P4.4: register sub-agent capability tools AFTER kernel creation —
+      // spawn/delegate/create/list need the live kernel instance. These give
+      // the LLM a path to the agentRegistry roster (previously a dead end:
+      // code-reviewer was registered but unreachable). Opt-in per SDK design
+      // (wireAgentAndSkillTools doc: never grant sub-agent powers implicitly).
+      try {
+        kernel.registerTool(createSpawnAgentTool(kernel) as any);
+        kernel.registerTool(createDelegateTool(kernel) as any);
+        kernel.registerTool(createCreateAgentTool(kernel) as any);
+        kernel.registerTool(createListAgentsTool(kernel) as any);
+      } catch (err) {
+        this.logger.warn(`P4.4: failed to register sub-agent tools (non-fatal): ${extractActualErrorMessage(err)}`);
+      }
+
       this.kernels.set(fullCacheKey, { kernel, sessionState, lastAccess: Date.now() });
-      this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${allTools.length} workspace=${workspaceRoot}`);
+      this.logger.log(`AgentKernel initialized: provider=${providerName || 'default'} model=${modelId || 'default'} tools=${allTools.length} skills=${discoveredSkillCount} workspace=${workspaceRoot}`);
       return kernel;
     } catch (error) {
       this.logger.error('Failed to initialize AgentKernel', error);

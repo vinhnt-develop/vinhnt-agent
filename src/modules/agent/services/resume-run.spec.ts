@@ -6,21 +6,16 @@ import { AgentService } from './agent.service';
  * the SDK resumeRun path itself is covered by vinhnt-sdk's own test suite.
  */
 
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type TestAgentService = any;
+
 function makeService(overrides: {
-  getRunRow?: AgentService['trackingService'] extends never ? never : any;
+  getRunRow?: () => any;
   activeHandles?: Map<string, unknown>;
-} = {}): AgentService {
+} = {}): TestAgentService {
   // Build a bare instance without running the NestJS constructor (same
   // pattern as agent.service.spec.ts).
-  const svc = Object.create(AgentService.prototype) as AgentService & {
-    logger: { log: (...a: unknown[]) => void; warn: (...a: unknown[]) => void; error: (...a: unknown[]) => void };
-    trackingService: any;
-    activeHandles: Map<string, { cancel: () => void; readonly isCancelled: boolean }>;
-    knowledgeFilterBySession: Map<string, string[]>;
-    getKernel: (...a: unknown[]) => Promise<unknown>;
-    buildRequestContext: (...a: unknown[]) => unknown;
-    agentToolkit: { cleanupRun: (id: string) => void };
-  };
+  const svc: TestAgentService = Object.create(AgentService.prototype);
   svc.logger = { log: () => {}, warn: () => {}, error: () => {} };
   svc.activeHandles = overrides.activeHandles ?? new Map();
   svc.knowledgeFilterBySession = new Map();
@@ -32,7 +27,7 @@ function makeService(overrides: {
     completeRunFromResult: () => {},
   };
   svc.buildRequestContext = () => ({});
-  return svc as AgentService;
+  return svc;
 }
 
 describe('AgentService.resumeRun guards (P4.2)', () => {
