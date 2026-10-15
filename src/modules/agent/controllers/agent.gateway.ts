@@ -346,10 +346,18 @@ export class AgentGateway
           this.runErrors.set(runId, { error: errorMsg, timestamp: Date.now() });
         }
 
+        // P0.4: carry the structured code/retryable across the wire so the UI
+        // can branch on stable codes instead of string-matching messages.
+        const errCode = isSdkError(rawError) ? rawError.code : trackedEntry?.code;
+        const errRetryable = isSdkError(rawError)
+          ? rawError.retryable
+          : trackedEntry?.retryable;
         client.emit('run:error', {
           error: errorMsg,
           sessionId: data.sessionId,
           runId,
+          ...(errCode !== undefined ? { code: errCode } : {}),
+          ...(errRetryable !== undefined ? { retryable: errRetryable } : {}),
         });
       } else {
         // P6.1: single payload builder — persists the full usage set (WS path
@@ -411,6 +419,8 @@ export class AgentGateway
         error: errorMsg,
         sessionId: data.sessionId,
         runId,
+        // P0.4: structured error info on the throw path as well.
+        ...(isSdkError(error) ? { code: error.code, retryable: error.retryable } : {}),
       });
     }
   }
