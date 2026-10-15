@@ -95,7 +95,10 @@ export interface KernelSettings {
   systemPrompt: string;
 }
 
-const DEFAULT_SETTINGS: KernelSettings = {
+/** Literal product defaults — the last layer of the hierarchy
+ *  (kernel-settings.json > env seed > this). Also the source for the
+ *  generated webui settings schema (P2.1, scripts/generate-webui-settings-schema.ts). */
+export const DEFAULT_SETTINGS: KernelSettings = {
   temperature: 0.7,
   topP: 1.0,
   maxTokens: 4096,
