@@ -19,6 +19,11 @@ import {
   createGitStatusTool,
   createGitDiffTool,
   createGitLogTool,
+  createWebFetchTool,
+  createWebSearchTool,
+  createTodoWriteTool,
+  TavilySearchProvider,
+  SerperSearchProvider,
   type ToolDefinition,
 } from '@vinhnt-sdk/tools';
 import {
@@ -172,6 +177,25 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     this.toolRegistry.register(asSystem(createGitStatusTool(root)));
     this.toolRegistry.register(asSystem(createGitDiffTool(root)));
     this.toolRegistry.register(asSystem(createGitLogTool(root)));
+
+    // P4.1: SDK capability tools. web_fetch/todowrite are keyless;
+    // web_search needs a search-provider key (env-injected, no hardcoding).
+    this.toolRegistry.register(asSystem(createWebFetchTool()));
+    this.toolRegistry.register(asSystem(createTodoWriteTool()));
+    const searchProvider = process.env.SERPER_API_KEY
+      ? new SerperSearchProvider({ apiKey: process.env.SERPER_API_KEY })
+      : process.env.TAVILY_API_KEY
+        ? new TavilySearchProvider({ apiKey: process.env.TAVILY_API_KEY })
+        : null;
+    if (searchProvider) {
+      this.toolRegistry.register(
+        asSystem(createWebSearchTool({ provider: searchProvider })),
+      );
+    } else {
+      this.logger.log(
+        'web_search not registered — set TAVILY_API_KEY or SERPER_API_KEY to enable',
+      );
+    }
 
     this.logger.log(
       `Initialized ${this.toolRegistry.count()} built-in tools for root: ${root}`,
