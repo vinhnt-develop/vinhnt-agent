@@ -4,6 +4,7 @@ import {
   appConfig,
   databaseConfig,
   agentConfig,
+  authConfig,
 } from './constants';
 import { validationSchema } from './validations';
 
@@ -12,7 +13,7 @@ import { validationSchema } from './validations';
     NestConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env'],
-      load: [appConfig, databaseConfig, agentConfig],
+      load: [appConfig, databaseConfig, agentConfig, authConfig],
       validationSchema: validationSchema,
       expandVariables: true,
       cache: true,

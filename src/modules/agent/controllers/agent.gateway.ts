@@ -8,10 +8,15 @@ import {
   MessageBody,
 } from '@nestjs/websockets';
 import { Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
 import { AgentSettingsService } from '../services/agent-settings.service';
+import {
+  extractBearerOrCookie,
+  verifyAccessToken,
+} from '@/common/guards/jwt-auth.guard';
 import { extractActualErrorMessage } from '@/shared/error-utils';
 import { ProjectPathService } from '@/shared/project-path.service';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
@@ -22,7 +27,15 @@ import type { PermissionMode } from '@/shared/permission-mode';
 const RUN_ERROR_TTL_MS = 5 * 60 * 1000;
 
 @WebSocketGateway({
-  cors: { origin: '*' },
+  // P3.1: same origin policy as REST (env APP_CORS_ORIGIN; dev fallback =
+  // webui on 2026) + credentials so the access_token cookie rides the
+  // handshake. Real protection is the JWT check in handleConnection.
+  cors: {
+    origin: (process.env.APP_CORS_ORIGIN || 'http://localhost:2026')
+      .split(',')
+      .map((s) => s.trim()),
+    credentials: true,
+  },
   namespace: '/agent',
 })
 export class AgentGateway
@@ -73,6 +86,7 @@ export class AgentGateway
     private readonly settingsService: AgentSettingsService,
     private readonly sessionRepository: SessionRepository,
     private readonly projectPathService: ProjectPathService,
+    private readonly configService: ConfigService,
   ) {}
 
   onModuleInit() {
@@ -194,6 +208,31 @@ export class AgentGateway
   }
 
   handleConnection(client: Socket) {
+    // P3.1: WS handshake must carry a valid api access token (cookie
+    // access_token / Authorization header / ?token=). Fail closed.
+    const secret = this.configService.get<string>('auth.secret');
+    if (!secret) {
+      this.logger.warn(`Rejected WS connection (AUTH_NOT_CONFIGURED): ${client.id}`);
+      client.disconnect(true);
+      return;
+    }
+    const handshake = client.handshake;
+    const queryToken = typeof handshake.query?.token === 'string' ? handshake.query.token : undefined;
+    const cookieHeader = typeof handshake.headers.cookie === 'string' ? handshake.headers.cookie : undefined;
+    const token =
+      extractBearerOrCookie(handshake.headers.authorization, cookieHeader) ?? queryToken;
+    if (!token) {
+      this.logger.warn(`Rejected unauthenticated WS connection: ${client.id}`);
+      client.disconnect(true);
+      return;
+    }
+    try {
+      verifyAccessToken(token, secret);
+    } catch {
+      this.logger.warn(`Rejected WS connection with invalid token: ${client.id}`);
+      client.disconnect(true);
+      return;
+    }
     this.logger.log(`Client connected: ${client.id}`);
   }
 

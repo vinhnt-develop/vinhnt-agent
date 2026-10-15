@@ -5,15 +5,15 @@ export const validationSchema = Joi.object({
   APP_PORT: Joi.number().default(8080),
   APP_API_DOCUMENT: Joi.string().default('true'),
   APP_API_PREFIX: Joi.string().default('api'),
-  APP_CORS_ORIGIN: Joi.string().default('http://localhost:5173'),
+  APP_CORS_ORIGIN: Joi.string().default('http://localhost:2026'),
+
+  // P3.1: shared secret with vinhnt-api — agent only verifies access tokens.
+  // Unset → auth fails closed (reject all non-@Public routes).
+  AUTH_SECRET: Joi.string().optional(),
 
   DATABASE_URL: Joi.string().required(),
 
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'staging', 'test')
     .default('development'),
-
-  SYNC_API_URL: Joi.string().allow('').optional(),
-  SYNC_API_KEY: Joi.string().allow('').optional(),
-  SYNC_ENABLED: Joi.boolean().default(false),
 });

@@ -1,10 +1,12 @@
 import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiExtraModels } from '@nestjs/swagger';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
+import { Public } from '@/common/guards/jwt-auth.guard';
 import { HealthCheckResponseDto, LivenessResponseDto, ReadinessResponseDto } from '../dto';
 
 @ApiTags('Health')
 @ApiExtraModels(HealthCheckResponseDto, LivenessResponseDto, ReadinessResponseDto)
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(
