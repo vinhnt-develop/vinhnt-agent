@@ -17,7 +17,6 @@ const config = new DocumentBuilder()
   .addTag('Knowledge', 'Knowledge base management')
   .addTag('Tool Config', 'Tool configuration management')
   .addTag('Plugin Config', 'Plugin configuration management')
-  .addTag('Sync', 'Cloud sync operations')
   .addBearerAuth(
     { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
     'JWT-auth',

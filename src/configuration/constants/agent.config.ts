@@ -48,9 +48,3 @@ export const agentConfig = registerAs('agent', () => ({
   // P7.1: ContextBudget.maxContextTokens seed (0 = disabled → SDK default 128_000).
   maxContextTokens: parseInt(process.env.AGENT_MAX_CONTEXT_TOKENS || '128000', 10),
 }));
-
-export const syncConfig = registerAs('sync', () => ({
-  enabled: process.env.SYNC_ENABLED === 'true',
-  apiUrl: process.env.SYNC_API_URL || '',
-  apiKey: process.env.SYNC_API_KEY || '',
-}));
