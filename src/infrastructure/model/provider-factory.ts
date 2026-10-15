@@ -134,13 +134,22 @@ export class ProviderFactory {
    */
   buildProvider(config: ProviderConfig): ModelProvider {
     const debugWire = process.env.LLM_DEBUG_BODY === '1' || process.env.LLM_DEBUG_BODY === 'true';
+    // P0.6: single retry owner. Every chat completion runs under the kernel
+    // CircuitBreaker (Settings → Resilience, settings-driven) — provider-internal
+    // fetchWithRetry nested inside breaker attempts multiplied HTTP calls
+    // ((3+1)×(3+1) = 16 worst case for a dead model). Default 0 = breaker owns
+    // retry; set LLM_PROVIDER_MAX_RETRIES > 0 to restore provider-level retries
+    // (e.g. if the breaker is bypassed).
+    const innerRetriesRaw = Number(process.env.LLM_PROVIDER_MAX_RETRIES ?? '0');
+    const innerRetries =
+      Number.isFinite(innerRetriesRaw) && innerRetriesRaw > 0 ? Math.floor(innerRetriesRaw) : 0;
     const opts: OpenAICompatibleProviderOptions = {
       baseUrl: config.baseUrl,
       apiKey: config.apiKey || '',
       defaultModel: config.defaultModel || config.provider,
       providerName: config.provider,
       timeoutMs: 120_000,
-      retry: { maxRetries: 3, baseBackoffMs: 1000, maxBackoffMs: 30_000 },
+      retry: { maxRetries: innerRetries, baseBackoffMs: 1000, maxBackoffMs: 30_000 },
       ...(config.contextLimit ? { contextLimit: config.contextLimit } : {}),
       ...(debugWire
         ? {
