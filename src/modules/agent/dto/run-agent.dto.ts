@@ -12,6 +12,7 @@ import {
 } from 'class-validator';
 import { Expose, Type } from 'class-transformer';
 import type { PermissionMode } from '@/shared/permission-mode';
+import { KNOWN_PERMISSION_MODES } from '@/shared/permission-mode';
 
 export class SelectedToolDto {
   @ApiProperty({ name: 'id', type: String, description: 'Tool ID', example: 'read_file' })
@@ -161,8 +162,11 @@ export class RunAgentDto {
   @ApiPropertyOptional({
     name: 'permissionMode',
     type: 'string',
-    enum: ['ask', 'edit', 'full'],
-    description: 'Per-run permission mode from composer (ask | edit | full)',
+    enum: [...KNOWN_PERMISSION_MODES],
+    description:
+      'Per-run permission mode override (open union — known modes: ' +
+      KNOWN_PERMISSION_MODES.join(' | ') +
+      '; composer sends ask | edit | full | auto | plan)',
     example: 'ask',
   })
   @IsOptional()
