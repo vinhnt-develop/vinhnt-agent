@@ -73,10 +73,13 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   private readonly approvalStore: ApprovalStore = new InMemoryApprovalStore();
   private readonly fileReadTracker = new FileReadTracker();
   private readonly fileHistory = new InMemoryFileHistory();
-  private readonly circuitBreaker = new CircuitBreaker({
+  private readonly circuitBreakerDefaults = {
     failureThreshold: 5,
     resetTimeoutMs: 60_000,
-  });
+  };
+  private circuitBreaker = new CircuitBreaker({ ...this.circuitBreakerDefaults });
+  /** Resilience values currently baked into `circuitBreaker` (P0.5). */
+  private resilienceApplied = { maxRetries: 3, backoffMs: 1000, maxBackoffMs: 30000 };
   private readonly loopDetector = new LoopDetector(3, 20);
   private readonly pluginRegistry: PluginRegistry =
     new InMemoryPluginRegistry();
@@ -291,7 +294,36 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     return this.approvalStore;
   }
 
+  /**
+   * P0.5: Settings → Resilience (maxRetries/backoffMs/maxBackoffMs) must reach
+   * the LIVE breaker. The kernel prefers an injected instance over building its
+   * own from config (`circuitBreaker ?? new CircuitBreaker(...)` in kernel.ts),
+   * so a hardcoded singleton silently made those three fields dead UI. The
+   * kernel cache already evicts on a settings-hash change (getSettingsHash
+   * includes them), so the next run rebuilds the kernel and lands here — sync
+   * the breaker against the saved settings before handing it over.
+   */
   getCircuitBreaker(): CircuitBreaker {
+    const saved = this.settingsService.getSettings();
+    const want = {
+      maxRetries: saved.maxRetries ?? 3,
+      backoffMs: saved.backoffMs ?? 1000,
+      maxBackoffMs: saved.maxBackoffMs ?? 30000,
+    };
+    if (
+      want.maxRetries !== this.resilienceApplied.maxRetries ||
+      want.backoffMs !== this.resilienceApplied.backoffMs ||
+      want.maxBackoffMs !== this.resilienceApplied.maxBackoffMs
+    ) {
+      this.circuitBreaker = new CircuitBreaker({
+        ...this.circuitBreakerDefaults,
+        ...want,
+      });
+      this.resilienceApplied = want;
+      this.logger.log(
+        `Circuit breaker rebuilt from settings: maxRetries=${want.maxRetries} backoffMs=${want.backoffMs} maxBackoffMs=${want.maxBackoffMs}`,
+      );
+    }
     return this.circuitBreaker;
   }
 

@@ -34,7 +34,9 @@ jest.mock('@vinhnt-sdk/permission', () => ({
 }));
 
 jest.mock('@vinhnt-sdk/guard', () => ({
-  CircuitBreaker: jest.fn().mockImplementation(() => ({
+  CircuitBreaker: jest.fn().mockImplementation((options?: unknown) => ({
+    __options: options,
+    getOptions: () => options ?? {},
     call: jest.fn().mockImplementation((fn: () => Promise<any>) => fn()),
     getState: jest.fn().mockReturnValue('closed'),
     reset: jest.fn(),
@@ -81,19 +83,21 @@ jest.mock('@vinhnt-sdk/lsp', () => ({
 
 describe('AgentToolkit', () => {
   let toolkit: AgentToolkit;
+  let settingsMock: { getSettings: jest.Mock };
 
   beforeEach(async () => {
+    settingsMock = {
+      getSettings: jest.fn(() => ({
+        workspaceRoot: '.',
+      })),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentToolkit,
         {
           // SC3: workspaceRoot now comes from settings (was ConfigService).
           provide: AgentSettingsService,
-          useValue: {
-            getSettings: jest.fn(() => ({
-              workspaceRoot: '.',
-            })),
-          },
+          useValue: settingsMock,
         },
         {
           provide: McpServerService,
@@ -125,6 +129,25 @@ describe('AgentToolkit', () => {
   describe('Guard', () => {
     it('should expose circuit breaker for kernel wiring', () => {
       expect(toolkit.getCircuitBreaker()).toBeDefined();
+    });
+
+    it('P0.5: rebuilds the breaker from saved Resilience settings', () => {
+      const before = toolkit.getCircuitBreaker();
+      settingsMock.getSettings.mockReturnValue({
+        workspaceRoot: '.',
+        maxRetries: 5,
+        backoffMs: 250,
+        maxBackoffMs: 15_000,
+      });
+
+      const after = toolkit.getCircuitBreaker();
+
+      expect(after).not.toBe(before);
+      expect(
+        (after as unknown as { getOptions: () => Record<string, unknown> }).getOptions(),
+      ).toMatchObject({ maxRetries: 5, backoffMs: 250, maxBackoffMs: 15_000 });
+      // Unchanged settings must keep the same instance (breaker state preserved).
+      expect(toolkit.getCircuitBreaker()).toBe(after);
     });
   });
 
