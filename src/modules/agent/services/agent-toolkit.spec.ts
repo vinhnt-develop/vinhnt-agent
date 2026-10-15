@@ -23,6 +23,11 @@ jest.mock('@vinhnt-sdk/tools', () => ({
   createGitStatusTool: jest.fn().mockReturnValue({ id: 'git_status' }),
   createGitDiffTool: jest.fn().mockReturnValue({ id: 'git_diff' }),
   createGitLogTool: jest.fn().mockReturnValue({ id: 'git_log' }),
+  createWebFetchTool: jest.fn().mockReturnValue({ id: 'web_fetch' }),
+  createWebSearchTool: jest.fn().mockReturnValue({ id: 'web_search' }),
+  createTodoWriteTool: jest.fn().mockReturnValue({ id: 'todowrite' }),
+  TavilySearchProvider: jest.fn().mockImplementation(() => ({ name: 'tavily' })),
+  SerperSearchProvider: jest.fn().mockImplementation(() => ({ name: 'serper' })),
 }));
 
 jest.mock('@vinhnt-sdk/permission', () => ({
