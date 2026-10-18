@@ -28,8 +28,16 @@ import type { DatabaseConnection } from './database.types';
         }
 
         const sqlite = new Database(resolvedPath);
+        // Durability / concurrency tuning for a single local writer (WAL).
         sqlite.pragma('journal_mode = WAL');
         sqlite.pragma('foreign_keys = ON');
+        // NORMAL is durable against application crashes (not power loss) and is
+        // the recommended pairing with WAL for a local app.
+        sqlite.pragma('synchronous = NORMAL');
+        // Wait (don't fail) when another connection holds the write lock.
+        sqlite.pragma('busy_timeout = 5000');
+        // Bound the WAL so it doesn't grow unbounded between checkpoints.
+        sqlite.pragma('wal_autocheckpoint = 1000');
 
         // Use drizzle with schema for type-safe queries
         const db = drizzle(sqlite, { schema });

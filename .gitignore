@@ -86,3 +86,5 @@ tsconfig.tsbuildinfo
 config/providers.json
 config/mcp-servers.json
 config/custom-tools.json
+config/credentials.json
+config/kernel-settings.json

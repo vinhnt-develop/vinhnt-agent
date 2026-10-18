@@ -20,7 +20,8 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "gen:webui-schema": "node -r tsconfig-paths/register -r ts-node/register scripts/generate-webui-settings-schema.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "node scripts/backup-db.mjs --quiet && drizzle-kit migrate",
+    "db:backup": "node scripts/backup-db.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },
