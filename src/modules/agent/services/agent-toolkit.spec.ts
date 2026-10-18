@@ -30,6 +30,12 @@ jest.mock('@vinhnt-sdk/tools', () => ({
   SerperSearchProvider: jest.fn().mockImplementation(() => ({ name: 'serper' })),
 }));
 
+jest.mock('@vinhnt-sdk/core', () => ({
+  PlanStore: jest.fn().mockImplementation(() => ({ get: jest.fn(), set: jest.fn() })),
+  createUpdatePlanTool: jest.fn().mockReturnValue({ id: 'update_plan' }),
+  createGetPlanTool: jest.fn().mockReturnValue({ id: 'get_plan' }),
+}));
+
 jest.mock('@vinhnt-sdk/permission', () => ({
   InMemoryApprovalStore: jest.fn().mockImplementation(() => ({
     awaitReply: jest.fn(),
@@ -128,6 +134,14 @@ describe('AgentToolkit', () => {
     it('should return tool definitions', () => {
       const tools = toolkit.getToolsAsDefinitions();
       expect(Array.isArray(tools)).toBe(true);
+    });
+
+    it('P4.1: registers update_plan + get_plan with a shared plan store', () => {
+      toolkit.initializeTools('/test/root');
+      const registry = toolkit.getToolRegistry() as unknown as { register: jest.Mock };
+      const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
+      expect(ids).toContain('update_plan');
+      expect(ids).toContain('get_plan');
     });
   });
 

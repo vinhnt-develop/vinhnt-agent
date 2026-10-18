@@ -27,6 +27,11 @@ import {
   type ToolDefinition,
 } from '@vinhnt-sdk/tools';
 import {
+  createUpdatePlanTool,
+  createGetPlanTool,
+  PlanStore,
+} from '@vinhnt-sdk/core';
+import {
   InMemoryApprovalStore,
   type ApprovalStore,
 } from '@vinhnt-sdk/permission';
@@ -78,6 +83,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   private readonly approvalStore: ApprovalStore = new InMemoryApprovalStore();
   private readonly fileReadTracker = new FileReadTracker();
   private readonly fileHistory = new InMemoryFileHistory();
+  private readonly planStore = new PlanStore();
   private readonly circuitBreakerDefaults = {
     failureThreshold: 5,
     resetTimeoutMs: 60_000,
@@ -182,6 +188,10 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     // web_search needs a search-provider key (env-injected, no hardcoding).
     this.toolRegistry.register(asSystem(createWebFetchTool()));
     this.toolRegistry.register(asSystem(createTodoWriteTool()));
+    // Plan tracking: update_plan writes / get_plan reads one shared store
+    // (per-toolkit instance — concurrent agents must not share a plan).
+    this.toolRegistry.register(asSystem(createUpdatePlanTool(this.planStore)));
+    this.toolRegistry.register(asSystem(createGetPlanTool(this.planStore)));
     const searchProvider = process.env.SERPER_API_KEY
       ? new SerperSearchProvider({ apiKey: process.env.SERPER_API_KEY })
       : process.env.TAVILY_API_KEY
