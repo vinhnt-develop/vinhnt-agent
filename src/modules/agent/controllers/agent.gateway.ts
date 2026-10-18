@@ -115,6 +115,14 @@ export class AgentGateway
           this.server?.to(clientId).emit('run:event', transformed);
         }
 
+        // Derive a snapshot-style todo event from the todowrite tool output so
+        // the UI can track the live task list (the SDK tool returns the full
+        // `todos` list on every call — last-write-wins, no deltas).
+        const todoUpdate = this.deriveTodoUpdate(event, runId, sessionId);
+        if (todoUpdate) {
+          this.server?.to(clientId).emit('run:event', todoUpdate);
+        }
+
         if (event.type === 'run.completed' && (event as any).data?.status === 'failed') {
           const error = (event as any).data?.error;
           if (error) {
@@ -601,6 +609,28 @@ export class AgentGateway
     }
   }
 
+  /**
+   * Turn a completed `todowrite` tool call into a `todo.updated` snapshot event
+   * for the UI. The SDK tool returns the full task list in its output, so this
+   * is a pure projection — no new state, last-write-wins.
+   */
+  private deriveTodoUpdate(
+    event: any,
+    runId: string,
+    sessionId?: string,
+  ): Record<string, unknown> | null {
+    if (event?.type !== 'tool.completed') return null;
+    const data = event.data as Record<string, unknown> | undefined;
+    if (!data || data.toolName !== 'todowrite') return null;
+    const output = data.output as { todos?: unknown } | undefined;
+    if (!output || !Array.isArray(output.todos)) return null;
+    return {
+      type: 'todo.updated',
+      todos: output.todos,
+      ...(sessionId ? { runId, sessionId } : { runId }),
+    };
+  }
+
   private transformEvent(
     event: any,
     runId: string,
@@ -682,6 +712,7 @@ export class AgentGateway
           type.startsWith('thinking.') ||
           type.startsWith('llm.') ||
           type.startsWith('permission.') ||
+          type === 'todo.updated' ||
           type === 'token.counted' ||
           type === 'model.cost' ||
           type === 'agent.handoff' ||
