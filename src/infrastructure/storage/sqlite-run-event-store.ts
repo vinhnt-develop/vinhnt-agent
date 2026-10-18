@@ -6,6 +6,9 @@ import { eq, sql, desc } from 'drizzle-orm';
 import type { RunEventStore, RunEvent, RunEventSnapshot, RunEventListener, RunId, TraceId, SessionUpdates } from '@vinhnt-sdk/schema';
 import { v4 as uuid } from 'uuid';
 
+/** The subset of a RunEvent actually written to the row. */
+type PersistableEvent = Pick<RunEvent, 'runId' | 'type' | 'data' | 'traceId' | 'occurredAt'>;
+
 @Injectable()
 export class SqliteRunEventStore implements RunEventStore {
   private listeners: RunEventListener[] = [];
@@ -15,54 +18,79 @@ export class SqliteRunEventStore implements RunEventStore {
     private readonly db: any,
   ) {}
 
-  async append(event: RunEvent): Promise<void> {
-    // Respect persist flag — ephemeral events (persist=false) are live-only
-    if (event.persist === false) {
-      for (const listener of this.listeners) { listener(event); }
-      return;
-    }
-
-    // Defense-in-depth: callers that skip sequence allocation (e.g. permission
-    // events) must not fall through to the SQLite default 0 — that corrupts
-    // trajectory ordering and breaks cursor replay.
-    const sequence = typeof event.sequence === 'number'
-      ? event.sequence
-      : await this.getNextSequence(event.runId);
-
-    this.db.insert(runEvents).values({
-      runId: event.runId,
-      type: event.type,
-      sequence,
-      data: event.data,
-      traceId: event.traceId,
-      occurredAt: event.occurredAt,
-    }).run();
-
-    for (const listener of this.listeners) {
-      listener(event);
-    }
+  /**
+   * Allocate the next sequence for an aggregate inside an OPEN transaction.
+   * Because better-sqlite3 transactions run synchronously, the MAX() read and
+   * the following INSERT cannot interleave — this is what makes concurrent
+   * `append`/`appendWithSequence` calls (which `await` between calls) allocate
+   * unique sequences instead of colliding on a stale MAX.
+   */
+  private nextSequenceInTx(tx: any, runId: string): number {
+    const row = tx
+      .select({ nextSeq: sql<number>`COALESCE(MAX(${runEvents.sequence}), -1) + 1` })
+      .from(runEvents)
+      .where(eq(runEvents.runId, runId))
+      .get();
+    return row?.nextSeq ?? 0;
   }
 
-  async appendTransactional(event: RunEvent, sessionUpdate?: { sessionId: string; updates: SessionUpdates }): Promise<void> {
-    // Respect persist flag — ephemeral events (persist=false) are live-only
-    if (event.persist === false) {
-      for (const listener of this.listeners) { listener(event); }
-      return;
-    }
-
-    const sequence = typeof event.sequence === 'number'
-      ? event.sequence
-      : await this.getNextSequence(event.runId);
-
-    this.db.transaction((tx: any) => {
-      tx.insert(runEvents).values({
+  private insertInTx(tx: any, event: PersistableEvent, sequence: number): void {
+    tx.insert(runEvents)
+      .values({
         runId: event.runId,
         type: event.type,
         sequence,
         data: event.data,
         traceId: event.traceId,
         occurredAt: event.occurredAt,
-      }).run();
+      })
+      .run();
+  }
+
+  /** Allocate a sequence and insert the row in a single atomic transaction. */
+  private allocateAndInsert(event: PersistableEvent, explicit?: number): number {
+    let sequence = explicit ?? 0;
+    this.db.transaction((tx: any) => {
+      sequence = explicit ?? this.nextSequenceInTx(tx, event.runId);
+      this.insertInTx(tx, event, sequence);
+    });
+    return sequence;
+  }
+
+  private notify(event: RunEvent): void {
+    for (const listener of this.listeners) {
+      listener(event);
+    }
+  }
+
+  async append(event: RunEvent): Promise<void> {
+    // Respect persist flag — ephemeral events (persist=false) are live-only.
+    if (event.persist === false) {
+      this.notify(event);
+      return;
+    }
+
+    // Defense-in-depth: callers that skip sequence allocation (e.g. permission
+    // events) must not fall through to the SQLite default 0 — that corrupts
+    // trajectory ordering and breaks cursor replay. Allocation + insert happen
+    // in one synchronous transaction so concurrent appends never collide.
+    const explicit = typeof event.sequence === 'number' ? event.sequence : undefined;
+    this.allocateAndInsert(event, explicit);
+
+    this.notify(event);
+  }
+
+  async appendTransactional(event: RunEvent, sessionUpdate?: { sessionId: string; updates: SessionUpdates }): Promise<void> {
+    // Respect persist flag — ephemeral events (persist=false) are live-only.
+    if (event.persist === false) {
+      this.notify(event);
+      return;
+    }
+
+    const explicit = typeof event.sequence === 'number' ? event.sequence : undefined;
+    this.db.transaction((tx: any) => {
+      const sequence = explicit ?? this.nextSequenceInTx(tx, event.runId);
+      this.insertInTx(tx, event, sequence);
 
       if (sessionUpdate) {
         const updateData: Record<string, any> = { updatedAt: new Date().toISOString() };
@@ -78,16 +106,18 @@ export class SqliteRunEventStore implements RunEventStore {
 
         tx.update(sessions).set(updateData).where(eq(sessions.id, sessionUpdate.sessionId)).run();
       }
-
-      for (const listener of this.listeners) {
-        listener(event);
-      }
     });
+
+    // Notify only after the transaction commits.
+    this.notify(event);
   }
 
   async exists(eventId: string): Promise<boolean> {
-    const result = this.db.select().from(runEvents)
-      .where(eq(runEvents.runId, eventId))
+    // run_events.id is the autoincrement row id (RunEvent.id is its string form).
+    const numericId = Number(eventId);
+    if (!Number.isInteger(numericId)) return false;
+    const result = this.db.select({ id: runEvents.id }).from(runEvents)
+      .where(eq(runEvents.id, numericId))
       .limit(1)
       .get();
     return !!result;
@@ -133,22 +163,27 @@ export class SqliteRunEventStore implements RunEventStore {
   }
 
   async appendWithSequence(event: RunEvent): Promise<number> {
-    const seq = await this.getNextSequence(event.runId);
-    await this.append({ ...event, sequence: seq });
-    return seq;
+    if (event.persist === false) {
+      this.notify(event);
+      return this.getNextSequence(event.runId);
+    }
+    const explicit = typeof event.sequence === 'number' ? event.sequence : undefined;
+    const sequence = this.allocateAndInsert(event, explicit);
+    this.notify({ ...event, sequence });
+    return sequence;
   }
 
   async saveSnapshot(runId: string, state: Record<string, unknown>): Promise<void> {
-    const seq = await this.getNextSequence(runId);
-    await this.append({
+    const snapshot: PersistableEvent & { id: string } = {
       id: uuid(),
       runId: runId as RunId,
-      sequence: seq,
       type: 'snapshot',
       data: state,
       traceId: '' as TraceId,
       occurredAt: new Date().toISOString(),
-    });
+    };
+    const sequence = this.allocateAndInsert(snapshot);
+    this.notify({ ...snapshot, sequence });
   }
 
   async getSnapshot(runId: string): Promise<RunEventSnapshot | null> {
