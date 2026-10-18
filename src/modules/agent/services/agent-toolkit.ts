@@ -22,8 +22,11 @@ import {
   createWebFetchTool,
   createWebSearchTool,
   createTodoWriteTool,
+  createQuestionTool,
+  InMemoryQuestionStore,
   TavilySearchProvider,
   SerperSearchProvider,
+  type QuestionStore,
   type ToolDefinition,
 } from '@vinhnt-sdk/tools';
 import {
@@ -81,6 +84,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentToolkit.name);
   private readonly toolRegistry = new ToolRegistry();
   private readonly approvalStore: ApprovalStore = new InMemoryApprovalStore();
+  private readonly questionStore: QuestionStore = new InMemoryQuestionStore();
   private readonly fileReadTracker = new FileReadTracker();
   private readonly fileHistory = new InMemoryFileHistory();
   private readonly planStore = new PlanStore();
@@ -188,6 +192,9 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     // web_search needs a search-provider key (env-injected, no hardcoding).
     this.toolRegistry.register(asSystem(createWebFetchTool()));
     this.toolRegistry.register(asSystem(createTodoWriteTool()));
+    // Ask-user (HITL): the tool defers to `ctx.askQuestion`, which the kernel
+    // wires to the injected QuestionStore; the user replies over REST/WS.
+    this.toolRegistry.register(asSystem(createQuestionTool()));
     // Plan tracking: update_plan writes / get_plan reads one shared store
     // (per-toolkit instance — concurrent agents must not share a plan).
     this.toolRegistry.register(asSystem(createUpdatePlanTool(this.planStore)));
@@ -326,6 +333,10 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
 
   getApprovalStore(): ApprovalStore {
     return this.approvalStore;
+  }
+
+  getQuestionStore(): QuestionStore {
+    return this.questionStore;
   }
 
   /**

@@ -593,9 +593,14 @@ export class AgentService implements OnModuleInit {
           autoApprovalEnabled: permissionMode !== 'ask',
           approvalTimeoutMs:
             settings?.approvalTimeoutMs ?? this.settingsService.getSettings().approvalTimeoutMs,
-          globalPermissionRules:
-            settings?.globalPermissionRules ??
-            this.settingsService.getSettings().globalPermissionRules,
+          globalPermissionRules: {
+            // The HITL `question` tool is never privileged — asking the user is
+            // not a side-effecting action, so allow it in every mode. Explicit
+            // user rules still win (spread last).
+            question: 'allow',
+            ...(settings?.globalPermissionRules ??
+              this.settingsService.getSettings().globalPermissionRules),
+          },
           permissionRiskDefaults:
             permissionMode === 'full'
               ? {
@@ -607,6 +612,13 @@ export class AgentService implements OnModuleInit {
                 }
               : (settings?.permissionRiskDefaults ??
                 this.settingsService.getSettings().permissionRiskDefaults),
+        },
+
+        // Human-in-the-loop questions (Phase 1): the kernel wires
+        // `ToolContext.askQuestion` to this store; the user's reply arrives
+        // over REST/WS and resumes the blocked run.
+        questions: {
+          questionStore: this.agentToolkit.getQuestionStore(),
         },
 
         // Sub-agents

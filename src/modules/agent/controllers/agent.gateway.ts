@@ -712,6 +712,7 @@ export class AgentGateway
           type.startsWith('thinking.') ||
           type.startsWith('llm.') ||
           type.startsWith('permission.') ||
+          type.startsWith('question.') ||
           type === 'todo.updated' ||
           type === 'token.counted' ||
           type === 'model.cost' ||

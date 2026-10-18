@@ -18,6 +18,8 @@ import {
 import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
+import type { QuestionAnswer, QuestionItem } from '@vinhnt-sdk/schema';
+import type { QuestionAction } from '@vinhnt-sdk/tools';
 import { AgentService, AgentSettingsService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
@@ -204,6 +206,63 @@ export class AgentController {
       status: 'success',
       message: 'Permission resolved.',
       data: { id, reply: body.reply },
+    };
+  }
+
+  @Get('questions/pending')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List agent questions awaiting a user reply' })
+  async getPendingQuestions(): Promise<ApiResponse<Array<{
+    id: string;
+    runId: string;
+    sessionId: string;
+    questions: readonly QuestionItem[];
+    allowCustom?: boolean;
+    expiresAt?: number;
+  }>>> {
+    const store = this.agentService.getAgentToolkit().getQuestionStore();
+    const pending = store.pendingRequests().map((r) => ({
+      id: r.requestId,
+      runId: r.runId,
+      sessionId: r.sessionId,
+      questions: r.questions,
+      ...(r.allowCustom !== undefined ? { allowCustom: r.allowCustom } : {}),
+      ...(r.expiresAt !== undefined ? { expiresAt: r.expiresAt } : {}),
+    }));
+    return {
+      status: 'success',
+      message: 'Pending questions retrieved.',
+      data: pending,
+    };
+  }
+
+  @Post('questions/:id/reply')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Answer a pending agent question' })
+  async replyQuestion(
+    @Param('id') id: string,
+    @Body() body: { action: QuestionAction; answers?: QuestionAnswer[] },
+  ): Promise<ApiResponse<{ id: string; action: QuestionAction }>> {
+    const valid: QuestionAction[] = ['accept', 'decline', 'cancel'];
+    if (!body?.action || !valid.includes(body.action)) {
+      throw new BadRequestException('action must be one of: accept, decline, cancel');
+    }
+    if (body.action === 'accept' && (!body.answers || body.answers.length === 0)) {
+      throw new BadRequestException('answers are required when action is "accept"');
+    }
+    const store = this.agentService.getAgentToolkit().getQuestionStore();
+    const req = store.getRequest(id);
+    if (!req) {
+      throw new NotFoundException('Question request not found or already resolved');
+    }
+    store.resolveRequest(id, {
+      action: body.action,
+      ...(body.answers ? { answers: body.answers } : {}),
+    });
+    return {
+      status: 'success',
+      message: 'Question resolved.',
+      data: { id, action: body.action },
     };
   }
 }

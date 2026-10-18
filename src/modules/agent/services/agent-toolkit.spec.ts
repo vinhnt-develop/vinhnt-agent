@@ -26,6 +26,14 @@ jest.mock('@vinhnt-sdk/tools', () => ({
   createWebFetchTool: jest.fn().mockReturnValue({ id: 'web_fetch' }),
   createWebSearchTool: jest.fn().mockReturnValue({ id: 'web_search' }),
   createTodoWriteTool: jest.fn().mockReturnValue({ id: 'todowrite' }),
+  createQuestionTool: jest.fn().mockReturnValue({ id: 'question' }),
+  InMemoryQuestionStore: jest.fn().mockImplementation(() => ({
+    awaitReply: jest.fn(),
+    resolveRequest: jest.fn(),
+    getRequest: jest.fn(),
+    pendingRequests: jest.fn().mockReturnValue([]),
+    cancelRequest: jest.fn(),
+  })),
   TavilySearchProvider: jest.fn().mockImplementation(() => ({ name: 'tavily' })),
   SerperSearchProvider: jest.fn().mockImplementation(() => ({ name: 'serper' })),
 }));
@@ -142,6 +150,14 @@ describe('AgentToolkit', () => {
       const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
       expect(ids).toContain('update_plan');
       expect(ids).toContain('get_plan');
+    });
+
+    it('Phase 1: registers the question tool and exposes its store', () => {
+      toolkit.initializeTools('/test/root');
+      const registry = toolkit.getToolRegistry() as unknown as { register: jest.Mock };
+      const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
+      expect(ids).toContain('question');
+      expect(toolkit.getQuestionStore()).toBeDefined();
     });
   });
 
