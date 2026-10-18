@@ -72,6 +72,15 @@ export class ToolExecutionRepository {
       .run();
   }
 
+  /** Boot reconciliation: close tool rows left 'running' by a crashed process. */
+  failAllRunning(reason = 'Interrupted by restart') {
+    return this.db
+      .update(toolExecutions)
+      .set({ status: 'failed', errorMessage: reason, completedAt: new Date().toISOString() })
+      .where(eq(toolExecutions.status, 'running'))
+      .run();
+  }
+
   findByRunId(runId: string) {
     return this.db
       .select()

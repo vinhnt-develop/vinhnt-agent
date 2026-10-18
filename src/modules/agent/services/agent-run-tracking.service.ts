@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { AgentRunRepository } from '../repositories/agent-run.repository';
 import { ToolExecutionRepository } from '../repositories/tool-execution.repository';
 
@@ -85,7 +85,7 @@ function firstNonZero(...values: Array<number | undefined>): number | undefined 
 }
 
 @Injectable()
-export class AgentRunTrackingService {
+export class AgentRunTrackingService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AgentRunTrackingService.name);
   /** Pending tool executions keyed by unique invocation ID. */
   private readonly pendingToolExecutions = new Map<string, PendingToolExecution>();
@@ -100,6 +100,25 @@ export class AgentRunTrackingService {
     private readonly agentRunRepository: AgentRunRepository,
     private readonly toolExecutionRepository: ToolExecutionRepository,
   ) {}
+
+  /**
+   * Boot reconciliation: no run can be live before the app serves traffic, so
+   * any row still 'running' is a crash remnant. Close the runs and their tool
+   * rows so the UI never shows a permanently spinning step.
+   */
+  onApplicationBootstrap(): void {
+    try {
+      const running = this.agentRunRepository.findRunning();
+      if (running.length === 0) return;
+      this.agentRunRepository.failAllRunning();
+      this.toolExecutionRepository.failAllRunning();
+      this.logger.warn(
+        `Reconciled ${running.length} orphan run(s) left 'running' after restart`,
+      );
+    } catch (error) {
+      this.logger.warn(`Boot run reconciliation failed: ${error}`);
+    }
+  }
 
   /**
    * Concurrency guard for a session: reap stale 'running' zombies first (so a

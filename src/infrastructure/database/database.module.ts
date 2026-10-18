@@ -1,19 +1,23 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { DATABASE_CONNECTION } from './database-connection';
 import { ConfigService } from '@nestjs/config';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema';
 import path from 'node:path';
 import fs from 'node:fs';
 import type { DatabaseConnection } from './database.types';
+import { prepareMigrations } from './migrate';
+
+const logger = new Logger('DatabaseModule');
 
 @Module({
   providers: [
     {
       provide: DATABASE_CONNECTION,
       inject: [ConfigService],
-      useFactory: (configService: ConfigService): DatabaseConnection => {
+      useFactory: async (configService: ConfigService): Promise<DatabaseConnection> => {
         const dbUrl = configService.getOrThrow<string>('database.url');
         // Extract file path from "file:./agent.db" format
         const filePath = dbUrl.replace('file:', '');
@@ -41,6 +45,27 @@ import type { DatabaseConnection } from './database.types';
 
         // Use drizzle with schema for type-safe queries
         const db = drizzle(sqlite, { schema });
+
+        // Auto-migrate on boot (idempotent, local-only). Snapshots the DB first
+        // when upgrading an already-populated database, so a failed migration is
+        // always recoverable without a manual `pnpm db:migrate`.
+        const migrationsFolder = path.resolve(process.cwd(), 'drizzle');
+        try {
+          const plan = await prepareMigrations(sqlite, resolvedPath, migrationsFolder);
+          if (plan.pending > 0) {
+            migrate(db, { migrationsFolder });
+            logger.log(
+              `Applied ${plan.pending} migration(s) (${plan.recordedBefore} -> ${plan.total})` +
+                (plan.backupPath ? `; pre-migration backup: ${plan.backupPath}` : ''),
+            );
+          }
+        } catch (error) {
+          logger.error(
+            `Auto-migration failed: ${error instanceof Error ? error.stack : String(error)}`,
+          );
+          throw error;
+        }
+
         return db;
       },
     },

@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { projects } from '@/modules/project/schemas/project.schema';
 
@@ -20,7 +20,9 @@ export const sessions = sqliteTable('sessions', {
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
   deletedAt: text('deleted_at'),
-});
+}, (table) => [
+  index('idx_sessions_project_id').on(table.projectId),
+]);
 
 export const messages = sqliteTable('messages', {
   id: text('id').primaryKey(),
@@ -37,4 +39,6 @@ export const messages = sqliteTable('messages', {
   cost: real('cost').default(0),
   metadata: text('metadata', { mode: 'json' }).default({}),
   createdAt: text('created_at').default(sql`(datetime('now'))`),
-});
+}, (table) => [
+  index('idx_messages_session_id').on(table.sessionId),
+]);

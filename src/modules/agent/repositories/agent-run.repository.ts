@@ -98,6 +98,25 @@ export class AgentRunRepository {
       .all();
   }
 
+  /**
+   * Boot reconciliation: a row still 'running' at startup is a crash remnant
+   * (no live run exists yet) — close it so it can't block the session or leave
+   * a permanently spinning step.
+   */
+  failAllRunning(reason = 'Interrupted by restart') {
+    return this.db
+      .update(agentRuns)
+      .set({
+        status: 'failed',
+        errorMessage: reason,
+        stopReason: 'interrupted',
+        completedAt: sql`datetime('now')`,
+        durationMs: sql`CAST((julianday('now') - julianday(${agentRuns.startedAt})) * 86400000 AS INTEGER)`,
+      })
+      .where(eq(agentRuns.status, 'running'))
+      .run();
+  }
+
   incrementToolCallsCount(id: string) {
     return this.db
       .update(agentRuns)

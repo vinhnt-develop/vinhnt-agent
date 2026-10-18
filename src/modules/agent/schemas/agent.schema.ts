@@ -22,7 +22,7 @@ export const runEvents = sqliteTable('run_events', {
   traceId: text('trace_id'),
   occurredAt: text('occurred_at').default(sql`(datetime('now'))`),
 }, (table) => [
-  index('idx_run_events_run_id').on(table.runId),
+  index('idx_run_events_run_id_sequence').on(table.runId, table.sequence),
 ]);
 
 export const toolExecutions = sqliteTable('tool_executions', {
@@ -70,4 +70,5 @@ export const agentRuns = sqliteTable('agent_runs', {
   createdAt: text('created_at').default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_agent_runs_session_id').on(table.sessionId),
+  index('idx_agent_runs_status').on(table.status),
 ]);
