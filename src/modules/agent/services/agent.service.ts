@@ -601,6 +601,15 @@ export class AgentService implements OnModuleInit {
             ...(settings?.globalPermissionRules ??
               this.settingsService.getSettings().globalPermissionRules),
           },
+          // A global `allow` is soft (risk defaults can still gate it), so the
+          // question tool additionally gets a decisive top-level allow — it must
+          // never require a permission prompt before the agent can ask a
+          // question. A global `deny`/`ask` (above) still takes precedence.
+          topLevelPermissionRules: {
+            allow: ['question'],
+            deny: [],
+            ask: [],
+          },
           permissionRiskDefaults:
             permissionMode === 'full'
               ? {
