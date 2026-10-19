@@ -610,6 +610,79 @@ export class AgentGateway
   }
 
   /**
+   * Resolve a pending tool-approval request over the socket (mirror of
+   * `POST /agent/permissions/:id/reply`). The returned value is delivered as
+   * the Socket.IO ack; the authoritative `permission.replied` run event still
+   * streams via the normal fan-out.
+   */
+  @SubscribeMessage('permission.reply')
+  handlePermissionReply(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: { id: string; reply: 'once' | 'always' | 'reject'; reason?: string },
+  ): { ok: true; id: string } | { ok: false; error: string } {
+    try {
+      if (!data?.id) return { ok: false, error: 'id is required' };
+      if (!data.reply || !['once', 'always', 'reject'].includes(data.reply)) {
+        return { ok: false, error: 'reply must be one of: once, always, reject' };
+      }
+      if (data.reason !== undefined && typeof data.reason !== 'string') {
+        return { ok: false, error: 'reason must be a string when provided' };
+      }
+      const store = this.agentService.getAgentToolkit().getApprovalStore();
+      if (!store.getRequest(data.id)) {
+        return { ok: false, error: 'Permission request not found or already resolved' };
+      }
+      store.resolveRequest(data.id, data.reply, data.reason);
+      this.logger.log(`Permission ${data.id} resolved via WS from ${client.id}: ${data.reply}`);
+      return { ok: true, id: data.id };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Permission reply failed for ${data?.id}: ${errorMsg}`);
+      return { ok: false, error: errorMsg };
+    }
+  }
+
+  /**
+   * Answer a pending agent question over the socket (mirror of
+   * `POST /agent/questions/:id/reply`).
+   */
+  @SubscribeMessage('question.reply')
+  handleQuestionReply(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      id: string;
+      action: 'accept' | 'decline' | 'cancel';
+      answers?: Array<{ header: string; selected: string[]; text?: string }>;
+    },
+  ): { ok: true; id: string } | { ok: false; error: string } {
+    try {
+      if (!data?.id) return { ok: false, error: 'id is required' };
+      if (!data.action || !['accept', 'decline', 'cancel'].includes(data.action)) {
+        return { ok: false, error: 'action must be one of: accept, decline, cancel' };
+      }
+      if (data.action === 'accept' && (!data.answers || data.answers.length === 0)) {
+        return { ok: false, error: 'answers are required when action is "accept"' };
+      }
+      const store = this.agentService.getAgentToolkit().getQuestionStore();
+      if (!store.getRequest(data.id)) {
+        return { ok: false, error: 'Question request not found or already resolved' };
+      }
+      store.resolveRequest(data.id, {
+        action: data.action,
+        ...(data.answers ? { answers: data.answers } : {}),
+      });
+      this.logger.log(`Question ${data.id} resolved via WS from ${client.id}: ${data.action}`);
+      return { ok: true, id: data.id };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Question reply failed for ${data?.id}: ${errorMsg}`);
+      return { ok: false, error: errorMsg };
+    }
+  }
+
+  /**
    * Turn a completed `todowrite` tool call into a `todo.updated` snapshot event
    * for the UI. The SDK tool returns the full task list in its output, so this
    * is a pure projection — no new state, last-write-wins.

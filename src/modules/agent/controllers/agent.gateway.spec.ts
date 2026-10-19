@@ -125,3 +125,69 @@ describe('AgentGateway.transformEvent (questions)', () => {
     expect(transform({ type: 'something.else', data: {} }, 'run_1')).toBeNull();
   });
 });
+
+describe('AgentGateway WS reply handlers', () => {
+  const approvalStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
+  const questionStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
+  const agentService = {
+    getAgentToolkit: () => ({
+      getApprovalStore: () => approvalStore,
+      getQuestionStore: () => questionStore,
+    }),
+  };
+  const gateway = new AgentGateway(
+    agentService as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+  );
+  const client = { id: 'client_1' } as never;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('resolves a permission reply and acks ok', () => {
+    approvalStore.getRequest.mockReturnValue({ id: 'p1' });
+    const ack = gateway.handlePermissionReply(client, { id: 'p1', reply: 'once' });
+    expect(ack).toEqual({ ok: true, id: 'p1' });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('p1', 'once', undefined);
+  });
+
+  it('forwards the reject reason to the store', () => {
+    approvalStore.getRequest.mockReturnValue({ id: 'p1' });
+    gateway.handlePermissionReply(client, { id: 'p1', reply: 'reject', reason: 'no thanks' });
+    expect(approvalStore.resolveRequest).toHaveBeenCalledWith('p1', 'reject', 'no thanks');
+  });
+
+  it('rejects an invalid permission reply without resolving', () => {
+    const ack = gateway.handlePermissionReply(client, { id: 'p1', reply: 'nope' as never });
+    expect(ack.ok).toBe(false);
+    expect(approvalStore.resolveRequest).not.toHaveBeenCalled();
+  });
+
+  it('acks not-found without resolving a permission', () => {
+    approvalStore.getRequest.mockReturnValue(undefined);
+    const ack = gateway.handlePermissionReply(client, { id: 'gone', reply: 'once' });
+    expect(ack).toEqual({
+      ok: false,
+      error: 'Permission request not found or already resolved',
+    });
+    expect(approvalStore.resolveRequest).not.toHaveBeenCalled();
+  });
+
+  it('resolves a question reply and acks ok', () => {
+    questionStore.getRequest.mockReturnValue({ id: 'q1' });
+    const ack = gateway.handleQuestionReply(client, { id: 'q1', action: 'decline' });
+    expect(ack).toEqual({ ok: true, id: 'q1' });
+    expect(questionStore.resolveRequest).toHaveBeenCalledWith('q1', { action: 'decline' });
+  });
+
+  it('requires answers when accepting a question', () => {
+    const ack = gateway.handleQuestionReply(client, { id: 'q1', action: 'accept' });
+    expect(ack.ok).toBe(false);
+    expect(questionStore.resolveRequest).not.toHaveBeenCalled();
+  });
+});
