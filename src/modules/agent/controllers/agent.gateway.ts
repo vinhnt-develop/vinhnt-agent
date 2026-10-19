@@ -865,6 +865,7 @@ export class AgentGateway
           type.startsWith('permission.') ||
           type.startsWith('question.') ||
           type.startsWith('plan.') ||
+          type.startsWith('ui.') ||
           type === 'todo.updated' ||
           type === 'token.counted' ||
           type === 'model.cost' ||
