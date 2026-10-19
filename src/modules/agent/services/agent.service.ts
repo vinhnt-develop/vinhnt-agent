@@ -180,6 +180,8 @@ export class AgentService implements OnModuleInit {
   /** Active run handles keyed by runId for run-specific cancellation.
    *  `isCancelled` is a getter on the kernel handle — assignment throws. */
   private activeHandles = new Map<string, { cancel: () => void; readonly isCancelled: boolean }>();
+  /** Live kernel per runId — lets us steer a running run via kernel.sendInput. */
+  private activeKernels = new Map<string, any>();
   /** P4.5: per-session knowledge-id filter from the composer selection.
    *  Absent/empty = include all knowledge entries (previous behaviour). */
   private readonly knowledgeFilterBySession = new Map<string, string[]>();
@@ -828,17 +830,18 @@ export class AgentService implements OnModuleInit {
     // only the WS path registered handles, leaving POST /agent/run runs
     // unstoppable (LM Studio kept generating after cancel).
     this.activeHandles.set(runId, handle);
+    this.activeKernels.set(runId, kernel);
     handle.completed.then(
       () => {
-        this.activeHandles.delete(runId);
+        this.forgetRun(runId);
         this.knowledgeFilterBySession.delete(sessionId);
       },
       () => {
-        this.activeHandles.delete(runId);
+        this.forgetRun(runId);
         this.knowledgeFilterBySession.delete(sessionId);
       },
     ).catch(() => {
-      this.activeHandles.delete(runId);
+      this.forgetRun(runId);
       this.knowledgeFilterBySession.delete(sessionId);
     });
 
@@ -1037,19 +1040,20 @@ export class AgentService implements OnModuleInit {
       });
 
       this.activeHandles.set(runId, handle);
+      this.activeKernels.set(runId, kernel);
 
       handle.completed.then(
         () => {
-          this.activeHandles.delete(runId);
+          this.forgetRun(runId);
           this.knowledgeFilterBySession.delete(sessionId);
         },
         () => {
-          this.activeHandles.delete(runId);
+          this.forgetRun(runId);
           this.knowledgeFilterBySession.delete(sessionId);
         },
       ).catch((err) => {
         this.logger.error(`Stream handle error for run ${runId}`, err);
-        this.activeHandles.delete(runId);
+        this.forgetRun(runId);
         this.knowledgeFilterBySession.delete(sessionId);
       });
 
@@ -1117,6 +1121,47 @@ export class AgentService implements OnModuleInit {
   /** True when this process holds a live handle for the run (P4.2 attach gate). */
   isRunActive(runId: string): boolean {
     return this.activeHandles.has(runId);
+  }
+
+  /** Drop all live-run bookkeeping (handle + kernel) once a run finishes. */
+  private forgetRun(runId: string): void {
+    this.activeHandles.delete(runId);
+    this.activeKernels.delete(runId);
+  }
+
+  /**
+   * Steer a live run (queue/steer): inject a user message that the kernel
+   * drains at the next step boundary. Returns `queued:false` with a status the
+   * caller can fall back on (e.g. start a fresh run instead of steering).
+   */
+  async sendRunInput(input: {
+    sessionId?: string;
+    runId?: string;
+    message: string;
+  }): Promise<{
+    queued: boolean;
+    runId?: string;
+    status: 'queued' | 'idle' | 'unavailable' | 'empty';
+  }> {
+    const message = input.message?.trim();
+    if (!message) return { queued: false, status: 'empty' };
+
+    let runId = input.runId;
+    if (!runId && input.sessionId) {
+      runId = this.trackingService.findActiveRunForSession(input.sessionId)?.id;
+    }
+    if (!runId) return { queued: false, status: 'idle' };
+
+    const kernel = this.activeKernels.get(runId);
+    if (!kernel || typeof kernel.sendInput !== 'function') {
+      // Run row is active but this process holds no live kernel (e.g. after a
+      // restart) — the caller should start a new run rather than lose the text.
+      return { queued: false, runId, status: 'unavailable' };
+    }
+
+    kernel.sendInput(runId, message);
+    this.logger.log(`Queued steering input for run ${runId}`);
+    return { queued: true, runId, status: 'queued' };
   }
 
   /**
@@ -1199,19 +1244,20 @@ export class AgentService implements OnModuleInit {
         },
       };
       this.activeHandles.set(runId, adapted);
+      this.activeKernels.set(runId, kernel);
 
       handle.completed.then(
         () => {
-          this.activeHandles.delete(runId);
+          this.forgetRun(runId);
           this.knowledgeFilterBySession.delete(sessionId);
         },
         () => {
-          this.activeHandles.delete(runId);
+          this.forgetRun(runId);
           this.knowledgeFilterBySession.delete(sessionId);
         },
       ).catch((err: unknown) => {
         this.logger.error(`Resume handle error for run ${runId}`, err as never);
-        this.activeHandles.delete(runId);
+        this.forgetRun(runId);
         this.knowledgeFilterBySession.delete(sessionId);
       });
 
@@ -1219,7 +1265,7 @@ export class AgentService implements OnModuleInit {
       // completion and derive terminal status; usage was already recorded
       // by the EventBus subscription (recordRunUsage).
       await handle.completed;
-      this.activeHandles.delete(runId);
+      this.forgetRun(runId);
       this.knowledgeFilterBySession.delete(sessionId);
 
       const finalStatus = cancelledFlag ? 'cancelled' : 'succeeded';
@@ -1237,7 +1283,7 @@ export class AgentService implements OnModuleInit {
     } catch (error) {
       const errorMsg = extractActualErrorMessage(error);
       this.logger.error(`Failed to resume run ${runId}: ${errorMsg}`);
-      this.activeHandles.delete(runId);
+      this.forgetRun(runId);
       if (this.trackingService.getRunStatus(runId) === 'running') {
         this.trackingService.completeRunFromResult({
           runId,

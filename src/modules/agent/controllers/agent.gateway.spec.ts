@@ -229,3 +229,46 @@ describe('AgentGateway WS reply handlers', () => {
     expect(planApprovalStore.resolveRequest).not.toHaveBeenCalled();
   });
 });
+
+describe('AgentGateway run:input (queue/steer)', () => {
+  const sendRunInput = jest.fn();
+  const gateway = new AgentGateway(
+    { sendRunInput } as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+  );
+  const client = { id: 'client_1' } as never;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('acks queued when the steer lands in the live run', async () => {
+    sendRunInput.mockResolvedValue({ queued: true, runId: 'r1', status: 'queued' });
+    const ack = await gateway.handleRunInput(client, { sessionId: 's1', message: 'go on' });
+    expect(ack).toEqual({ ok: true, queued: true, runId: 'r1', status: 'queued' });
+    expect(sendRunInput).toHaveBeenCalledWith({
+      sessionId: 's1',
+      runId: undefined,
+      message: 'go on',
+    });
+  });
+
+  it('acks not-queued when there is no live run (caller starts a new run)', async () => {
+    sendRunInput.mockResolvedValue({ queued: false, status: 'idle' });
+    const ack = await gateway.handleRunInput(client, { sessionId: 's1', message: 'hi' });
+    expect(ack.ok).toBe(false);
+    expect(ack.queued).toBe(false);
+    expect(ack.status).toBe('idle');
+  });
+
+  it('rejects an empty message without calling the service', async () => {
+    const ack = await gateway.handleRunInput(client, { sessionId: 's1', message: '' });
+    expect(ack.ok).toBe(false);
+    expect(ack.status).toBe('empty');
+    expect(sendRunInput).not.toHaveBeenCalled();
+  });
+});

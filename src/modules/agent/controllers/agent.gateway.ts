@@ -594,6 +594,48 @@ export class AgentGateway
     }
   }
 
+  /**
+   * Steer a live run over the socket (queue/steer): the message is injected
+   * into the running kernel and drained at the next step boundary. The ack
+   * tells the client whether it landed; on failure the client starts a fresh
+   * run instead of losing the text.
+   */
+  @SubscribeMessage('run:input')
+  async handleRunInput(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { sessionId?: string; runId?: string; message: string },
+  ): Promise<{
+    ok: boolean;
+    queued: boolean;
+    runId?: string;
+    status: string;
+    error?: string;
+  }> {
+    try {
+      if (!data?.message || typeof data.message !== 'string') {
+        return { ok: false, queued: false, status: 'empty', error: 'message is required' };
+      }
+      const result = await this.agentService.sendRunInput({
+        sessionId: data.sessionId,
+        runId: data.runId,
+        message: data.message,
+      });
+      this.logger.log(
+        `run:input from ${client.id} → status=${result.status} run=${result.runId ?? 'n/a'}`,
+      );
+      return {
+        ok: result.queued,
+        queued: result.queued,
+        runId: result.runId,
+        status: result.status,
+      };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`run:input failed: ${errorMsg}`);
+      return { ok: false, queued: false, status: 'error', error: errorMsg };
+    }
+  }
+
   @SubscribeMessage('messages')
   async handleMessages(
     @ConnectedSocket() client: Socket,
