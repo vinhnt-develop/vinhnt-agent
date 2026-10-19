@@ -191,21 +191,24 @@ export class AgentController {
   @ApiOperation({ summary: 'Resolve a pending tool-approval request' })
   async replyPermission(
     @Param('id') id: string,
-    @Body() body: { reply: 'once' | 'always' | 'reject' },
-  ): Promise<ApiResponse<{ id: string; reply: string }>> {
+    @Body() body: { reply: 'once' | 'always' | 'reject'; reason?: string },
+  ): Promise<ApiResponse<{ id: string; reply: string; reason?: string }>> {
     if (!body?.reply || !['once', 'always', 'reject'].includes(body.reply)) {
       throw new BadRequestException('reply must be one of: once, always, reject');
+    }
+    if (body.reason !== undefined && typeof body.reason !== 'string') {
+      throw new BadRequestException('reason must be a string when provided');
     }
     const store = this.agentService.getAgentToolkit().getApprovalStore();
     const req = store.getRequest(id);
     if (!req) {
       throw new NotFoundException('Permission request not found or already resolved');
     }
-    store.resolveRequest(id, body.reply);
+    store.resolveRequest(id, body.reply, body.reason);
     return {
       status: 'success',
       message: 'Permission resolved.',
-      data: { id, reply: body.reply },
+      data: { id, reply: body.reply, ...(body.reason !== undefined ? { reason: body.reason } : {}) },
     };
   }
 
