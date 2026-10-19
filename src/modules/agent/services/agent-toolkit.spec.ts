@@ -34,6 +34,14 @@ jest.mock('@vinhnt-sdk/tools', () => ({
     pendingRequests: jest.fn().mockReturnValue([]),
     cancelRequest: jest.fn(),
   })),
+  createElicitTool: jest.fn().mockReturnValue({ id: 'elicit' }),
+  InMemoryElicitationStore: jest.fn().mockImplementation(() => ({
+    awaitReply: jest.fn(),
+    resolveRequest: jest.fn(),
+    getRequest: jest.fn(),
+    pendingRequests: jest.fn().mockReturnValue([]),
+    cancelRequest: jest.fn(),
+  })),
   createSubmitPlanTool: jest.fn().mockReturnValue({ id: 'submit_plan' }),
   InMemoryPlanApprovalStore: jest.fn().mockImplementation(() => ({
     awaitReply: jest.fn(),
@@ -166,6 +174,14 @@ describe('AgentToolkit', () => {
       const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
       expect(ids).toContain('question');
       expect(toolkit.getQuestionStore()).toBeDefined();
+    });
+
+    it('Phase 4: registers the elicit tool and exposes its store', () => {
+      toolkit.initializeTools('/test/root');
+      const registry = toolkit.getToolRegistry() as unknown as { register: jest.Mock };
+      const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
+      expect(ids).toContain('elicit');
+      expect(toolkit.getElicitationStore()).toBeDefined();
     });
   });
 

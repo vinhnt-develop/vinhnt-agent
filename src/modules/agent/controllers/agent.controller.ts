@@ -18,8 +18,14 @@ import {
 import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
-import type { QuestionAnswer, QuestionItem, PlanApprovalStep } from '@vinhnt-sdk/schema';
-import type { QuestionAction, PlanDecision } from '@vinhnt-sdk/tools';
+import type {
+  QuestionAnswer,
+  QuestionItem,
+  PlanApprovalStep,
+  ElicitationMode,
+  ElicitationRequestedSchema,
+} from '@vinhnt-sdk/schema';
+import type { QuestionAction, ElicitationAction, PlanDecision } from '@vinhnt-sdk/tools';
 import { AgentService, AgentSettingsService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
@@ -269,6 +275,64 @@ export class AgentController {
     return {
       status: 'success',
       message: 'Question resolved.',
+      data: { id, action: body.action },
+    };
+  }
+
+  @Get('elicitations/pending')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List agent elicitation requests awaiting a user reply' })
+  async getPendingElicitations(): Promise<ApiResponse<Array<{
+    id: string;
+    runId: string;
+    sessionId: string;
+    message: string;
+    mode: ElicitationMode;
+    url?: string;
+    requestedSchema?: ElicitationRequestedSchema;
+    expiresAt?: number;
+  }>>> {
+    const store = this.agentService.getAgentToolkit().getElicitationStore();
+    const pending = store.pendingRequests().map((r) => ({
+      id: r.requestId,
+      runId: r.runId,
+      sessionId: r.sessionId,
+      message: r.message,
+      mode: r.mode,
+      ...(r.url !== undefined ? { url: r.url } : {}),
+      ...(r.requestedSchema !== undefined ? { requestedSchema: r.requestedSchema } : {}),
+      ...(r.expiresAt !== undefined ? { expiresAt: r.expiresAt } : {}),
+    }));
+    return {
+      status: 'success',
+      message: 'Pending elicitations retrieved.',
+      data: pending,
+    };
+  }
+
+  @Post('elicitations/:id/reply')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Reply to a pending agent elicitation request' })
+  async replyElicitation(
+    @Param('id') id: string,
+    @Body() body: { action: ElicitationAction; content?: Record<string, unknown> },
+  ): Promise<ApiResponse<{ id: string; action: ElicitationAction }>> {
+    const valid: ElicitationAction[] = ['accept', 'decline', 'cancel'];
+    if (!body?.action || !valid.includes(body.action)) {
+      throw new BadRequestException('action must be one of: accept, decline, cancel');
+    }
+    const store = this.agentService.getAgentToolkit().getElicitationStore();
+    const req = store.getRequest(id);
+    if (!req) {
+      throw new NotFoundException('Elicitation request not found or already resolved');
+    }
+    store.resolveRequest(id, {
+      action: body.action,
+      ...(body.content ? { content: body.content } : {}),
+    });
+    return {
+      status: 'success',
+      message: 'Elicitation resolved.',
       data: { id, action: body.action },
     };
   }

@@ -24,11 +24,14 @@ import {
   createTodoWriteTool,
   createQuestionTool,
   InMemoryQuestionStore,
+  createElicitTool,
+  InMemoryElicitationStore,
   createSubmitPlanTool,
   InMemoryPlanApprovalStore,
   TavilySearchProvider,
   SerperSearchProvider,
   type QuestionStore,
+  type ElicitationStore,
   type PlanApprovalStore,
   type ToolDefinition,
 } from '@vinhnt-sdk/tools';
@@ -88,6 +91,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   private readonly toolRegistry = new ToolRegistry();
   private readonly approvalStore: ApprovalStore = new InMemoryApprovalStore();
   private readonly questionStore: QuestionStore = new InMemoryQuestionStore();
+  private readonly elicitationStore: ElicitationStore = new InMemoryElicitationStore();
   private readonly planApprovalStore: PlanApprovalStore = new InMemoryPlanApprovalStore();
   private readonly fileReadTracker = new FileReadTracker();
   private readonly fileHistory = new InMemoryFileHistory();
@@ -199,6 +203,9 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     // Ask-user (HITL): the tool defers to `ctx.askQuestion`, which the kernel
     // wires to the injected QuestionStore; the user replies over REST/WS.
     this.toolRegistry.register(asSystem(createQuestionTool()));
+    // Structured input (HITL, MCP elicitation shape): the tool defers to
+    // `ctx.askElicitation`, which the kernel wires to the ElicitationStore.
+    this.toolRegistry.register(asSystem(createElicitTool()));
     // Plan approval (HITL): the tool defers to `ctx.askPlan`, which the kernel
     // wires to the injected PlanApprovalStore; the user decides over REST/WS.
     this.toolRegistry.register(asSystem(createSubmitPlanTool()));
@@ -344,6 +351,10 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
 
   getQuestionStore(): QuestionStore {
     return this.questionStore;
+  }
+
+  getElicitationStore(): ElicitationStore {
+    return this.elicitationStore;
   }
 
   getPlanApprovalStore(): PlanApprovalStore {

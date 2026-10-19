@@ -121,6 +121,35 @@ describe('AgentGateway.transformEvent (questions)', () => {
     });
   });
 
+  it('forwards elicitation.requested with data + run/session context', () => {
+    const data = {
+      requestId: 'e1',
+      runId: 'run_1',
+      sessionId: 'sess_1',
+      message: 'Provide details',
+      mode: 'form',
+      requestedSchema: { type: 'object', properties: { name: { type: 'string' } } },
+    };
+    const result = transform({ type: 'elicitation.requested', data }, 'run_1', 'sess_1');
+    expect(result).toEqual({
+      type: 'elicitation.requested',
+      data,
+      runId: 'run_1',
+      sessionId: 'sess_1',
+    });
+  });
+
+  it('forwards elicitation.replied carrying the requestId', () => {
+    const data = { requestId: 'e1', action: 'accept', content: { name: 'Ada' } };
+    const result = transform({ type: 'elicitation.replied', data }, 'run_1', 'sess_1');
+    expect(result).toMatchObject({
+      type: 'elicitation.replied',
+      data,
+      runId: 'run_1',
+      sessionId: 'sess_1',
+    });
+  });
+
   it('drops unrelated event types', () => {
     expect(transform({ type: 'something.else', data: {} }, 'run_1')).toBeNull();
   });
@@ -129,11 +158,13 @@ describe('AgentGateway.transformEvent (questions)', () => {
 describe('AgentGateway WS reply handlers', () => {
   const approvalStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
   const questionStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
+  const elicitationStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
   const planApprovalStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
   const agentService = {
     getAgentToolkit: () => ({
       getApprovalStore: () => approvalStore,
       getQuestionStore: () => questionStore,
+      getElicitationStore: () => elicitationStore,
       getPlanApprovalStore: () => planApprovalStore,
     }),
   };
@@ -191,6 +222,36 @@ describe('AgentGateway WS reply handlers', () => {
     const ack = gateway.handleQuestionReply(client, { id: 'q1', action: 'accept' });
     expect(ack.ok).toBe(false);
     expect(questionStore.resolveRequest).not.toHaveBeenCalled();
+  });
+
+  it('resolves an elicitation reply and acks ok', () => {
+    elicitationStore.getRequest.mockReturnValue({ id: 'e1' });
+    const ack = gateway.handleElicitationReply(client, {
+      id: 'e1',
+      action: 'accept',
+      content: { name: 'Ada' },
+    });
+    expect(ack).toEqual({ ok: true, id: 'e1' });
+    expect(elicitationStore.resolveRequest).toHaveBeenCalledWith('e1', {
+      action: 'accept',
+      content: { name: 'Ada' },
+    });
+  });
+
+  it('rejects an invalid elicitation action without resolving', () => {
+    const ack = gateway.handleElicitationReply(client, { id: 'e1', action: 'nope' as never });
+    expect(ack.ok).toBe(false);
+    expect(elicitationStore.resolveRequest).not.toHaveBeenCalled();
+  });
+
+  it('acks not-found without resolving an elicitation', () => {
+    elicitationStore.getRequest.mockReturnValue(undefined);
+    const ack = gateway.handleElicitationReply(client, { id: 'gone', action: 'cancel' });
+    expect(ack).toEqual({
+      ok: false,
+      error: 'Elicitation request not found or already resolved',
+    });
+    expect(elicitationStore.resolveRequest).not.toHaveBeenCalled();
   });
 
   it('resolves a plan decision and acks ok', () => {

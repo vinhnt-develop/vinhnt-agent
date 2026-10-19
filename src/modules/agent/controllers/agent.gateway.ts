@@ -799,6 +799,42 @@ export class AgentGateway
   }
 
   /**
+   * Reply to a pending elicitation over the socket (mirror of
+   * `POST /agent/elicitations/:id/reply`).
+   */
+  @SubscribeMessage('elicitation.reply')
+  handleElicitationReply(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      id: string;
+      action: 'accept' | 'decline' | 'cancel';
+      content?: Record<string, unknown>;
+    },
+  ): { ok: true; id: string } | { ok: false; error: string } {
+    try {
+      if (!data?.id) return { ok: false, error: 'id is required' };
+      if (!data.action || !['accept', 'decline', 'cancel'].includes(data.action)) {
+        return { ok: false, error: 'action must be one of: accept, decline, cancel' };
+      }
+      const store = this.agentService.getAgentToolkit().getElicitationStore();
+      if (!store.getRequest(data.id)) {
+        return { ok: false, error: 'Elicitation request not found or already resolved' };
+      }
+      store.resolveRequest(data.id, {
+        action: data.action,
+        ...(data.content ? { content: data.content } : {}),
+      });
+      this.logger.log(`Elicitation ${data.id} resolved via WS from ${client.id}: ${data.action}`);
+      return { ok: true, id: data.id };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Elicitation reply failed for ${data?.id}: ${errorMsg}`);
+      return { ok: false, error: errorMsg };
+    }
+  }
+
+  /**
    * Decide a pending agent plan over the socket (mirror of
    * `POST /agent/plans/:id/decision`).
    */
@@ -938,6 +974,7 @@ export class AgentGateway
           type.startsWith('llm.') ||
           type.startsWith('permission.') ||
           type.startsWith('question.') ||
+          type.startsWith('elicitation.') ||
           type.startsWith('plan.') ||
           type.startsWith('ui.') ||
           type === 'todo.updated' ||

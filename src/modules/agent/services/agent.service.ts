@@ -600,6 +600,7 @@ export class AgentService implements OnModuleInit {
             // asking the user is not a side-effecting action, so allow them in
             // every mode. Explicit user rules still win (spread last).
             question: 'allow',
+            elicit: 'allow',
             submit_plan: 'allow',
             ...(settings?.globalPermissionRules ??
               this.settingsService.getSettings().globalPermissionRules),
@@ -609,7 +610,7 @@ export class AgentService implements OnModuleInit {
           // allow — they must never require a permission prompt before the
           // agent can ask. A global `deny`/`ask` (above) still takes precedence.
           topLevelPermissionRules: {
-            allow: ['question', 'submit_plan'],
+            allow: ['question', 'elicit', 'submit_plan'],
             deny: [],
             ask: [],
           },
@@ -631,6 +632,13 @@ export class AgentService implements OnModuleInit {
         // over REST/WS and resumes the blocked run.
         questions: {
           questionStore: this.agentToolkit.getQuestionStore(),
+        },
+
+        // Human-in-the-loop structured input (MCP elicitation shape): the kernel
+        // wires `ToolContext.askElicitation` to this store; the user's reply
+        // arrives over REST/WS and resumes the blocked run.
+        elicitations: {
+          elicitStore: this.agentToolkit.getElicitationStore(),
         },
 
         // Human-in-the-loop plan approval: the kernel wires `ToolContext.askPlan`
