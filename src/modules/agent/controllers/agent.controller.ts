@@ -168,6 +168,8 @@ export class AgentController {
     reason: string;
     prompt: string;
     occurredAt: string;
+    scope?: readonly string[];
+    source?: string;
   }>>> {
     const store = this.agentService.getAgentToolkit().getApprovalStore();
     const pending = store.pendingRequests().map((r) => ({
@@ -178,6 +180,8 @@ export class AgentController {
       reason: r.reason,
       prompt: r.prompt,
       occurredAt: r.occurredAt,
+      ...(r.scope !== undefined ? { scope: r.scope } : {}),
+      ...(r.source !== undefined ? { source: r.source } : {}),
     }));
     return {
       status: 'success',
