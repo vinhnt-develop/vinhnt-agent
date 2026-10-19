@@ -18,8 +18,8 @@ import {
 import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
 import type { ApiResponse } from '@/common/interfaces';
-import type { QuestionAnswer, QuestionItem } from '@vinhnt-sdk/schema';
-import type { QuestionAction } from '@vinhnt-sdk/tools';
+import type { QuestionAnswer, QuestionItem, PlanApprovalStep } from '@vinhnt-sdk/schema';
+import type { QuestionAction, PlanDecision } from '@vinhnt-sdk/tools';
 import { AgentService, AgentSettingsService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
@@ -266,6 +266,62 @@ export class AgentController {
       status: 'success',
       message: 'Question resolved.',
       data: { id, action: body.action },
+    };
+  }
+
+  @Get('plans/pending')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List agent plans awaiting a user decision' })
+  async getPendingPlans(): Promise<ApiResponse<Array<{
+    id: string;
+    runId: string;
+    sessionId: string;
+    title?: string;
+    steps: readonly PlanApprovalStep[];
+    explanation?: string;
+    expiresAt?: number;
+  }>>> {
+    const store = this.agentService.getAgentToolkit().getPlanApprovalStore();
+    const pending = store.pendingRequests().map((r) => ({
+      id: r.requestId,
+      runId: r.runId,
+      sessionId: r.sessionId,
+      ...(r.title !== undefined ? { title: r.title } : {}),
+      steps: r.steps,
+      ...(r.explanation !== undefined ? { explanation: r.explanation } : {}),
+      ...(r.expiresAt !== undefined ? { expiresAt: r.expiresAt } : {}),
+    }));
+    return {
+      status: 'success',
+      message: 'Pending plans retrieved.',
+      data: pending,
+    };
+  }
+
+  @Post('plans/:id/decision')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Approve or request changes to a pending agent plan' })
+  async decidePlan(
+    @Param('id') id: string,
+    @Body() body: { decision: PlanDecision; feedback?: string },
+  ): Promise<ApiResponse<{ id: string; decision: PlanDecision }>> {
+    const valid: PlanDecision[] = ['approve', 'request_changes', 'cancel'];
+    if (!body?.decision || !valid.includes(body.decision)) {
+      throw new BadRequestException('decision must be one of: approve, request_changes, cancel');
+    }
+    const store = this.agentService.getAgentToolkit().getPlanApprovalStore();
+    const req = store.getRequest(id);
+    if (!req) {
+      throw new NotFoundException('Plan request not found or already resolved');
+    }
+    store.resolveRequest(id, {
+      decision: body.decision,
+      ...(body.feedback ? { feedback: body.feedback } : {}),
+    });
+    return {
+      status: 'success',
+      message: 'Plan decision recorded.',
+      data: { id, decision: body.decision },
     };
   }
 }

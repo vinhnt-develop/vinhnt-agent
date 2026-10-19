@@ -683,6 +683,42 @@ export class AgentGateway
   }
 
   /**
+   * Decide a pending agent plan over the socket (mirror of
+   * `POST /agent/plans/:id/decision`).
+   */
+  @SubscribeMessage('plan.decision')
+  handlePlanDecision(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      id: string;
+      decision: 'approve' | 'request_changes' | 'cancel';
+      feedback?: string;
+    },
+  ): { ok: true; id: string } | { ok: false; error: string } {
+    try {
+      if (!data?.id) return { ok: false, error: 'id is required' };
+      if (!data.decision || !['approve', 'request_changes', 'cancel'].includes(data.decision)) {
+        return { ok: false, error: 'decision must be one of: approve, request_changes, cancel' };
+      }
+      const store = this.agentService.getAgentToolkit().getPlanApprovalStore();
+      if (!store.getRequest(data.id)) {
+        return { ok: false, error: 'Plan request not found or already resolved' };
+      }
+      store.resolveRequest(data.id, {
+        decision: data.decision,
+        ...(data.feedback ? { feedback: data.feedback } : {}),
+      });
+      this.logger.log(`Plan ${data.id} decided via WS from ${client.id}: ${data.decision}`);
+      return { ok: true, id: data.id };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`Plan decision failed for ${data?.id}: ${errorMsg}`);
+      return { ok: false, error: errorMsg };
+    }
+  }
+
+  /**
    * Turn a completed `todowrite` tool call into a `todo.updated` snapshot event
    * for the UI. The SDK tool returns the full task list in its output, so this
    * is a pure projection — no new state, last-write-wins.
@@ -786,6 +822,7 @@ export class AgentGateway
           type.startsWith('llm.') ||
           type.startsWith('permission.') ||
           type.startsWith('question.') ||
+          type.startsWith('plan.') ||
           type === 'todo.updated' ||
           type === 'token.counted' ||
           type === 'model.cost' ||

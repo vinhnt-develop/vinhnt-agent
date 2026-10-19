@@ -129,10 +129,12 @@ describe('AgentGateway.transformEvent (questions)', () => {
 describe('AgentGateway WS reply handlers', () => {
   const approvalStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
   const questionStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
+  const planApprovalStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
   const agentService = {
     getAgentToolkit: () => ({
       getApprovalStore: () => approvalStore,
       getQuestionStore: () => questionStore,
+      getPlanApprovalStore: () => planApprovalStore,
     }),
   };
   const gateway = new AgentGateway(
@@ -189,5 +191,41 @@ describe('AgentGateway WS reply handlers', () => {
     const ack = gateway.handleQuestionReply(client, { id: 'q1', action: 'accept' });
     expect(ack.ok).toBe(false);
     expect(questionStore.resolveRequest).not.toHaveBeenCalled();
+  });
+
+  it('resolves a plan decision and acks ok', () => {
+    planApprovalStore.getRequest.mockReturnValue({ id: 'pl1' });
+    const ack = gateway.handlePlanDecision(client, { id: 'pl1', decision: 'approve' });
+    expect(ack).toEqual({ ok: true, id: 'pl1' });
+    expect(planApprovalStore.resolveRequest).toHaveBeenCalledWith('pl1', { decision: 'approve' });
+  });
+
+  it('forwards plan feedback on request_changes', () => {
+    planApprovalStore.getRequest.mockReturnValue({ id: 'pl1' });
+    gateway.handlePlanDecision(client, {
+      id: 'pl1',
+      decision: 'request_changes',
+      feedback: 'split it',
+    });
+    expect(planApprovalStore.resolveRequest).toHaveBeenCalledWith('pl1', {
+      decision: 'request_changes',
+      feedback: 'split it',
+    });
+  });
+
+  it('rejects an invalid plan decision without resolving', () => {
+    const ack = gateway.handlePlanDecision(client, { id: 'pl1', decision: 'nope' as never });
+    expect(ack.ok).toBe(false);
+    expect(planApprovalStore.resolveRequest).not.toHaveBeenCalled();
+  });
+
+  it('acks not-found without resolving a plan', () => {
+    planApprovalStore.getRequest.mockReturnValue(undefined);
+    const ack = gateway.handlePlanDecision(client, { id: 'gone', decision: 'approve' });
+    expect(ack).toEqual({
+      ok: false,
+      error: 'Plan request not found or already resolved',
+    });
+    expect(planApprovalStore.resolveRequest).not.toHaveBeenCalled();
   });
 });

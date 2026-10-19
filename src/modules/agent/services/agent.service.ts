@@ -594,19 +594,20 @@ export class AgentService implements OnModuleInit {
           approvalTimeoutMs:
             settings?.approvalTimeoutMs ?? this.settingsService.getSettings().approvalTimeoutMs,
           globalPermissionRules: {
-            // The HITL `question` tool is never privileged — asking the user is
-            // not a side-effecting action, so allow it in every mode. Explicit
-            // user rules still win (spread last).
+            // The HITL `question`/`submit_plan` tools are never privileged —
+            // asking the user is not a side-effecting action, so allow them in
+            // every mode. Explicit user rules still win (spread last).
             question: 'allow',
+            submit_plan: 'allow',
             ...(settings?.globalPermissionRules ??
               this.settingsService.getSettings().globalPermissionRules),
           },
           // A global `allow` is soft (risk defaults can still gate it), so the
-          // question tool additionally gets a decisive top-level allow — it must
-          // never require a permission prompt before the agent can ask a
-          // question. A global `deny`/`ask` (above) still takes precedence.
+          // question/submit_plan tools additionally get a decisive top-level
+          // allow — they must never require a permission prompt before the
+          // agent can ask. A global `deny`/`ask` (above) still takes precedence.
           topLevelPermissionRules: {
-            allow: ['question'],
+            allow: ['question', 'submit_plan'],
             deny: [],
             ask: [],
           },
@@ -628,6 +629,13 @@ export class AgentService implements OnModuleInit {
         // over REST/WS and resumes the blocked run.
         questions: {
           questionStore: this.agentToolkit.getQuestionStore(),
+        },
+
+        // Human-in-the-loop plan approval: the kernel wires `ToolContext.askPlan`
+        // to this store; the user's decision arrives over REST/WS and resumes the
+        // blocked run.
+        plans: {
+          planStore: this.agentToolkit.getPlanApprovalStore(),
         },
 
         // Sub-agents

@@ -34,6 +34,14 @@ jest.mock('@vinhnt-sdk/tools', () => ({
     pendingRequests: jest.fn().mockReturnValue([]),
     cancelRequest: jest.fn(),
   })),
+  createSubmitPlanTool: jest.fn().mockReturnValue({ id: 'submit_plan' }),
+  InMemoryPlanApprovalStore: jest.fn().mockImplementation(() => ({
+    awaitReply: jest.fn(),
+    resolveRequest: jest.fn(),
+    getRequest: jest.fn(),
+    pendingRequests: jest.fn().mockReturnValue([]),
+    cancelRequest: jest.fn(),
+  })),
   TavilySearchProvider: jest.fn().mockImplementation(() => ({ name: 'tavily' })),
   SerperSearchProvider: jest.fn().mockImplementation(() => ({ name: 'serper' })),
 }));
