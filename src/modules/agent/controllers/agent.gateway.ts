@@ -636,6 +636,80 @@ export class AgentGateway
     }
   }
 
+  /**
+   * Interactive generative-UI action: the user clicked a button on an
+   * agent-rendered surface (`ui.surface` -> `actions` component). Forward it
+   * into the live run as a steering input so the agent reacts at the next step
+   * boundary (mirror of `run:input`). Returns `queued:false` when no live run
+   * is held so the client can fall back to sending a fresh message.
+   */
+  @SubscribeMessage('ui.action')
+  async handleUiAction(
+    @ConnectedSocket() client: Socket,
+    @MessageBody()
+    data: {
+      sessionId?: string;
+      runId?: string;
+      surfaceId?: string;
+      actionId?: string;
+      label?: string;
+      value?: string;
+    },
+  ): Promise<{
+    ok: boolean;
+    queued: boolean;
+    runId?: string;
+    status: string;
+    error?: string;
+  }> {
+    try {
+      const { surfaceId, actionId } = data ?? {};
+      if (!surfaceId || !actionId) {
+        return {
+          ok: false,
+          queued: false,
+          status: 'invalid',
+          error: 'surfaceId and actionId are required',
+        };
+      }
+      const result = await this.agentService.sendRunInput({
+        sessionId: data.sessionId,
+        runId: data.runId,
+        message: this.formatSurfaceAction({
+          surfaceId,
+          actionId,
+          label: data.label,
+          value: data.value,
+        }),
+      });
+      this.logger.log(
+        `ui.action ${actionId}@${surfaceId} from ${client.id} → status=${result.status}`,
+      );
+      return {
+        ok: result.queued,
+        queued: result.queued,
+        runId: result.runId,
+        status: result.status,
+      };
+    } catch (error) {
+      const errorMsg = extractActualErrorMessage(error);
+      this.logger.error(`ui.action failed: ${errorMsg}`);
+      return { ok: false, queued: false, status: 'error', error: errorMsg };
+    }
+  }
+
+  /** Render a clicked surface action as a steering message for the model. */
+  private formatSurfaceAction(data: {
+    surfaceId: string;
+    actionId: string;
+    label?: string;
+    value?: string;
+  }): string {
+    const label = data.label?.trim() || data.actionId;
+    const base = `[UI] User clicked "${label}" on the "${data.surfaceId}" surface (action id: ${data.actionId}).`;
+    return data.value ? `${base} value: ${data.value}` : base;
+  }
+
   @SubscribeMessage('messages')
   async handleMessages(
     @ConnectedSocket() client: Socket,

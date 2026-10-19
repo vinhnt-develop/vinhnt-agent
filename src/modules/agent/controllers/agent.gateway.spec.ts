@@ -272,3 +272,57 @@ describe('AgentGateway run:input (queue/steer)', () => {
     expect(sendRunInput).not.toHaveBeenCalled();
   });
 });
+
+describe('AgentGateway ui.action (generative UI)', () => {
+  const sendRunInput = jest.fn();
+  const gateway = new AgentGateway(
+    { sendRunInput } as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+    null as never,
+  );
+  const client = { id: 'client_1' } as never;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('steers the live run with a formatted action message', async () => {
+    sendRunInput.mockResolvedValue({ queued: true, runId: 'r1', status: 'queued' });
+    const ack = await gateway.handleUiAction(client, {
+      sessionId: 's1',
+      surfaceId: 'confirm',
+      actionId: 'yes',
+      label: 'Yes',
+      value: 'ok',
+    });
+    expect(ack).toEqual({ ok: true, queued: true, runId: 'r1', status: 'queued' });
+    expect(sendRunInput).toHaveBeenCalledTimes(1);
+    const arg = sendRunInput.mock.calls[0][0];
+    expect(arg.sessionId).toBe('s1');
+    expect(arg.message).toContain('Yes');
+    expect(arg.message).toContain('confirm');
+    expect(arg.message).toContain('yes');
+    expect(arg.message).toContain('value: ok');
+  });
+
+  it('acks not-queued when there is no live run', async () => {
+    sendRunInput.mockResolvedValue({ queued: false, status: 'idle' });
+    const ack = await gateway.handleUiAction(client, {
+      sessionId: 's1',
+      surfaceId: 'confirm',
+      actionId: 'yes',
+    });
+    expect(ack.ok).toBe(false);
+    expect(ack.status).toBe('idle');
+  });
+
+  it('rejects a missing surfaceId/actionId without calling the service', async () => {
+    const ack = await gateway.handleUiAction(client, { sessionId: 's1' });
+    expect(ack.ok).toBe(false);
+    expect(ack.status).toBe('invalid');
+    expect(sendRunInput).not.toHaveBeenCalled();
+  });
+});
