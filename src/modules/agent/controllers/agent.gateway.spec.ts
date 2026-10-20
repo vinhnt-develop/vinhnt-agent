@@ -326,6 +326,12 @@ describe('AgentGateway run:input (queue/steer)', () => {
     expect(ack.status).toBe('idle');
   });
 
+  it('acks finished when the run settled before the input landed', async () => {
+    sendRunInput.mockResolvedValue({ queued: false, runId: 'r1', status: 'finished' });
+    const ack = await gateway.handleRunInput(client, { sessionId: 's1', runId: 'r1', message: 'late' });
+    expect(ack).toEqual({ ok: false, queued: false, runId: 'r1', status: 'finished' });
+  });
+
   it('rejects an empty message without calling the service', async () => {
     const ack = await gateway.handleRunInput(client, { sessionId: 's1', message: '' });
     expect(ack.ok).toBe(false);

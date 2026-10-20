@@ -131,3 +131,83 @@ describe('SC3 evictOldestKernel reads maxKernelCacheSize live', () => {
     expect((svc as unknown as { kernels: Map<string, unknown> }).kernels.size).toBe(2);
   });
 });
+
+describe('sendRunInput ack semantics (VNT-104)', () => {
+  function makeService(opts: {
+    activeRuns?: Array<{ id: string; sessionId?: string }>;
+    kernels?: Map<string, { sendInput: (runId: string, text: string) => boolean }>;
+  }) {
+    const svc = Object.create(AgentService.prototype) as AgentService;
+    const internals = svc as unknown as {
+      activeKernels: Map<string, unknown>;
+      trackingService: { findActiveRunForSession: (sessionId: string) => { id: string } | undefined };
+      logger: { log: () => void; error: () => void };
+    };
+    internals.activeKernels = opts.kernels ?? new Map();
+    internals.trackingService = {
+      findActiveRunForSession: (sessionId: string) =>
+        opts.activeRuns?.find((run) => run.sessionId === sessionId),
+    };
+    internals.logger = { log: () => {}, error: () => {} };
+    return svc;
+  }
+
+  it('rejects an empty message without touching the runtime', async () => {
+    const svc = makeService({});
+    await expect(svc.sendRunInput({ runId: 'r1', message: '   ' })).resolves.toEqual({
+      queued: false,
+      status: 'empty',
+    });
+  });
+
+  it('reports idle when no live run can be resolved', async () => {
+    const svc = makeService({});
+    await expect(svc.sendRunInput({ message: 'hi' })).resolves.toEqual({
+      queued: false,
+      status: 'idle',
+    });
+  });
+
+  it('reports unavailable when this process holds no kernel', async () => {
+    const svc = makeService({});
+    await expect(svc.sendRunInput({ runId: 'r1', message: 'hi' })).resolves.toEqual({
+      queued: false,
+      runId: 'r1',
+      status: 'unavailable',
+    });
+  });
+
+  it('reports finished when the kernel refuses a settled run', async () => {
+    const kernels = new Map([['r1', { sendInput: () => false }]]);
+    const svc = makeService({ kernels });
+    await expect(svc.sendRunInput({ runId: 'r1', message: 'late' })).resolves.toEqual({
+      queued: false,
+      runId: 'r1',
+      status: 'finished',
+    });
+  });
+
+  it('reports queued only when the kernel accepted the input', async () => {
+    const sendInput = jest.fn().mockReturnValue(true);
+    const kernels = new Map([['r1', { sendInput }]]);
+    const svc = makeService({ kernels });
+    await expect(svc.sendRunInput({ runId: 'r1', message: 'steer' })).resolves.toEqual({
+      queued: true,
+      runId: 'r1',
+      status: 'queued',
+    });
+    expect(sendInput).toHaveBeenCalledWith('r1', 'steer');
+  });
+
+  it('resolves the run from the session when no runId is passed', async () => {
+    const sendInput = jest.fn().mockReturnValue(true);
+    const kernels = new Map([['run-7', { sendInput }]]);
+    const svc = makeService({
+      activeRuns: [{ id: 'run-7', sessionId: 'sess-1' }],
+      kernels,
+    });
+    await expect(
+      svc.sendRunInput({ sessionId: 'sess-1', message: 'steer' }),
+    ).resolves.toEqual({ queued: true, runId: 'run-7', status: 'queued' });
+  });
+});

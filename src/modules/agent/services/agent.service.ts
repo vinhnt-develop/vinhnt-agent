@@ -1149,7 +1149,7 @@ export class AgentService implements OnModuleInit {
   }): Promise<{
     queued: boolean;
     runId?: string;
-    status: 'queued' | 'idle' | 'unavailable' | 'empty';
+    status: 'queued' | 'idle' | 'unavailable' | 'finished' | 'empty';
   }> {
     const message = input.message?.trim();
     if (!message) return { queued: false, status: 'empty' };
@@ -1167,7 +1167,12 @@ export class AgentService implements OnModuleInit {
       return { queued: false, runId, status: 'unavailable' };
     }
 
-    kernel.sendInput(runId, message);
+    // The kernel refuses inputs once the run settled (it may still be held in
+    // activeKernels for a moment). Report that instead of claiming it landed.
+    const accepted = kernel.sendInput(runId, message);
+    if (!accepted) {
+      return { queued: false, runId, status: 'finished' };
+    }
     this.logger.log(`Queued steering input for run ${runId}`);
     return { queued: true, runId, status: 'queued' };
   }
