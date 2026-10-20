@@ -1,4 +1,5 @@
 import { FileExplorerModule } from './file-explorer';
+import { FilesystemModule } from './filesystem';
 import { GitExplorerModule } from './git-explorer';
 import { AgentModule } from './agent';
 import { HealthModule } from './health';
@@ -15,6 +16,7 @@ export const modules = [
   AgentModule,
   HealthModule,
   FileExplorerModule,
+  FilesystemModule,
   GitExplorerModule,
   WorkspaceModule,
   ProjectModule,

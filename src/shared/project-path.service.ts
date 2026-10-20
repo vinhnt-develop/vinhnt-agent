@@ -21,6 +21,7 @@ export function projectDirectoryError(
 ): Record<string, unknown> {
   return {
     statusCode: 409,
+    error: 'PROJECT_DIRECTORY_MISSING',
     errorCode: 'PROJECT_DIRECTORY_MISSING',
     message: `Project directory is not available (${resolved.status}): ${resolved.path}`,
     details: {
