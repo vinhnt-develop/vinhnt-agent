@@ -2,6 +2,7 @@ import { IsString, IsNotEmpty, IsOptional, MinLength, MaxLength } from 'class-va
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Expose } from 'class-transformer';
 import { PaginationDto } from '@/common/dto/pagination.dto';
+import type { DirectoryStatus } from '@/shared/project-path';
 
 export class CreateProjectDto {
   @ApiProperty({ name: 'name', type: String, description: 'Project name', example: 'my-app' })
@@ -73,6 +74,18 @@ export class ProjectResponseDto {
   @ApiPropertyOptional({ name: 'directory', type: String, description: 'Project directory', example: '/home/user/projects/my-app' })
   @Expose({ name: 'directory' })
   directory?: string;
+
+  @ApiPropertyOptional({
+    name: 'directoryStatus',
+    enum: ['ok', 'missing', 'not_directory', 'unreadable', 'unset'],
+    description: 'Computed usability of the configured directory',
+  })
+  @Expose({ name: 'directoryStatus' })
+  directoryStatus?: DirectoryStatus;
+
+  @ApiPropertyOptional({ name: 'resolvedDirectory', type: String, description: 'Absolute directory used for runs' })
+  @Expose({ name: 'resolvedDirectory' })
+  resolvedDirectory?: string;
 
   @ApiPropertyOptional({ name: 'isActive', type: Boolean, description: 'Is active', example: true })
   @Expose({ name: 'isActive' })

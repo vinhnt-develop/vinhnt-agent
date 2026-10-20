@@ -1,7 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import * as path from 'node:path';
 import { ProjectRepository } from '../repositories/project.repository';
 import { PaginationDto } from '@/common/dto/pagination.dto';
-import { isUsableDirectory } from '@/shared/project-path';
+import { KernelSettingsStore } from '@/shared/kernel-settings.store';
+import {
+  checkDirectoryStatus,
+  isUsableDirectory,
+  type DirectoryStatus,
+} from '@/shared/project-path';
 
 /**
  * Sanitize a client-supplied directory. Filesystem roots ("/", "\") and "."
@@ -17,14 +23,37 @@ function normalizeDirectoryInput(dir?: string | null): string | null | undefined
 
 @Injectable()
 export class ProjectService {
-  constructor(private readonly projectRepository: ProjectRepository) {}
+  constructor(
+    private readonly projectRepository: ProjectRepository,
+    private readonly settingsStore: KernelSettingsStore,
+  ) {}
+
+  private async enrich<T extends { directory?: string | null }>(
+    project: T,
+  ): Promise<T & { directoryStatus: DirectoryStatus; resolvedDirectory?: string }> {
+    if (!isUsableDirectory(project.directory)) {
+      return { ...project, directoryStatus: 'unset' };
+    }
+    const workspaceRoot = this.settingsStore.getWorkspaceRoot() || '.';
+    const resolvedDirectory = path.isAbsolute(project.directory)
+      ? path.normalize(project.directory)
+      : path.resolve(workspaceRoot, project.directory);
+    const directoryStatus = await checkDirectoryStatus(resolvedDirectory);
+    return { ...project, directoryStatus, resolvedDirectory };
+  }
 
   async findAllByWorkspace(workspaceId: string) {
-    return this.projectRepository.findByWorkspaceId(workspaceId);
+    const projects = await this.projectRepository.findByWorkspaceId(workspaceId);
+    return Promise.all(projects.map((project) => this.enrich(project)));
   }
 
   async findAllByWorkspaceWithPagination(workspaceId: string, dto: PaginationDto) {
-    return this.projectRepository.findByWorkspaceIdWithPagination(workspaceId, dto);
+    const result =
+      await this.projectRepository.findByWorkspaceIdWithPagination(workspaceId, dto);
+    return {
+      ...result,
+      data: await Promise.all(result.data.map((project) => this.enrich(project))),
+    };
   }
 
   async findById(id: string) {
@@ -32,23 +61,31 @@ export class ProjectService {
     if (!project) {
       throw new NotFoundException('Project not found');
     }
-    return project;
+    return this.enrich(project);
   }
 
   async create(data: { name: string; description?: string; directory?: string; workspaceId: string }) {
-    return this.projectRepository.create({
+    const project = await this.projectRepository.create({
       ...data,
       directory: normalizeDirectoryInput(data.directory) ?? undefined,
     });
+    if (!project) {
+      throw new NotFoundException('Project not found');
+    }
+    return this.enrich(project);
   }
 
   async update(id: string, data: { name?: string; description?: string; directory?: string }) {
     await this.findById(id);
     const directory = normalizeDirectoryInput(data.directory);
-    if (directory === undefined) {
-      return this.projectRepository.update(id, data);
+    const project =
+      directory === undefined
+        ? await this.projectRepository.update(id, data)
+        : await this.projectRepository.update(id, { ...data, directory });
+    if (!project) {
+      throw new NotFoundException('Project not found');
     }
-    return this.projectRepository.update(id, { ...data, directory });
+    return this.enrich(project);
   }
 
   async softDelete(id: string) {

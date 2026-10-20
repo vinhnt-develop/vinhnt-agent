@@ -1,4 +1,26 @@
 import * as path from 'node:path';
+import * as fs from 'node:fs/promises';
+
+export type DirectoryStatus =
+  | 'ok'
+  | 'missing'
+  | 'not_directory'
+  | 'unreadable'
+  | 'unset';
+
+export async function checkDirectoryStatus(
+  dir: string,
+): Promise<Exclude<DirectoryStatus, 'unset'>> {
+  try {
+    const stat = await fs.stat(dir);
+    return stat.isDirectory() ? 'ok' : 'not_directory';
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException)?.code;
+    if (code === 'ENOENT') return 'missing';
+    if (code === 'ENOTDIR') return 'not_directory';
+    return 'unreadable';
+  }
+}
 
 export interface ProjectPathDeps {
   session: { projectId?: string | null } | null | undefined;

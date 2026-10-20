@@ -1,5 +1,11 @@
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { isUsableDirectory, resolveProjectPathFromDeps } from './project-path';
+import {
+  checkDirectoryStatus,
+  isUsableDirectory,
+  resolveProjectPathFromDeps,
+} from './project-path';
 
 const WR = 'D:/ws-root';
 
@@ -50,5 +56,32 @@ describe('resolveProjectPathFromDeps', () => {
 
   it('returns undefined without projectId', () => {
     expect(resolveProjectPathFromDeps(deps({ session: { projectId: null } }), WR)).toBeUndefined();
+  });
+});
+
+describe('checkDirectoryStatus', () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'vinhnt-path-'));
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it('reports ok for an existing directory', async () => {
+    await expect(checkDirectoryStatus(tmp)).resolves.toBe('ok');
+  });
+
+  it('reports missing for a removed directory', async () => {
+    const gone = path.join(tmp, 'gone');
+    await expect(checkDirectoryStatus(gone)).resolves.toBe('missing');
+  });
+
+  it('reports not_directory for a file', async () => {
+    const file = path.join(tmp, 'file.txt');
+    await fs.writeFile(file, 'x');
+    await expect(checkDirectoryStatus(file)).resolves.toBe('not_directory');
   });
 });

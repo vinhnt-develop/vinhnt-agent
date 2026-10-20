@@ -8,6 +8,7 @@ import {
   HttpStatus,
   NotFoundException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -29,7 +30,7 @@ import type { QuestionAction, ElicitationAction, PlanDecision } from '@vinhnt-sd
 import { AgentService, AgentSettingsService } from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
-import { ProjectPathService } from '@/shared/project-path.service';
+import { ProjectPathService, projectDirectoryError } from '@/shared/project-path.service';
 
 @ApiTags('Agent')
 @ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto)
@@ -55,7 +56,11 @@ export class AgentController {
       throw new NotFoundException('Session not found');
     }
 
-    const projectPath = await this.projectPathService.resolve(dto.sessionId);
+    const resolved = await this.projectPathService.resolveDetails(dto.sessionId);
+    if (resolved.status !== 'ok') {
+      throw new ConflictException(projectDirectoryError(resolved));
+    }
+    const projectPath = resolved.source === 'project' ? resolved.path : undefined;
 
     // Same settings source as WS gateway (saved kernel settings).
     const settings = this.settingsService.getSettings();

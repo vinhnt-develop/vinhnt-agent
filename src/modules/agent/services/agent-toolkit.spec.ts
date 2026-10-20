@@ -43,6 +43,7 @@ jest.mock('@vinhnt-sdk/tools', () => ({
     cancelRequest: jest.fn(),
   })),
   createSubmitPlanTool: jest.fn().mockReturnValue({ id: 'submit_plan' }),
+  createRenderUiTool: jest.fn().mockReturnValue({ id: 'render_ui' }),
   InMemoryPlanApprovalStore: jest.fn().mockImplementation(() => ({
     awaitReply: jest.fn(),
     resolveRequest: jest.fn(),
@@ -182,6 +183,13 @@ describe('AgentToolkit', () => {
       const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
       expect(ids).toContain('elicit');
       expect(toolkit.getElicitationStore()).toBeDefined();
+    });
+
+    it('Phase 4: registers the render_ui tool', () => {
+      toolkit.initializeTools('/test/root');
+      const registry = toolkit.getToolRegistry() as unknown as { register: jest.Mock };
+      const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
+      expect(ids).toContain('render_ui');
     });
   });
 

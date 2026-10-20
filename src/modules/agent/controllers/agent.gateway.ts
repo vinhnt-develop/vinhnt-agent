@@ -18,7 +18,7 @@ import {
   verifyAccessToken,
 } from '@/common/guards/jwt-auth.guard';
 import { extractActualErrorMessage } from '@/shared/error-utils';
-import { ProjectPathService } from '@/shared/project-path.service';
+import { ProjectPathService, projectDirectoryError } from '@/shared/project-path.service';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { SdkError, isSdkError } from '@vinhnt-sdk/schema';
 import type { PermissionMode } from '@/shared/permission-mode';
@@ -303,10 +303,27 @@ export class AgentGateway
         return;
       }
 
+      const resolvedProject = await this.projectPathService.resolveDetails(
+        data.sessionId,
+      );
+      if (resolvedProject.status !== 'ok') {
+        const error = projectDirectoryError(resolvedProject);
+        client.emit('run:error', {
+          ...error,
+          code: error.errorCode,
+          error: error.message,
+          sessionId: data.sessionId,
+        });
+        return;
+      }
+
       const result = await this.agentService.runAgentStreaming({
         ...data,
         settings: savedSettings,
-        projectPath: await this.projectPathService.resolve(data.sessionId),
+        projectPath:
+          resolvedProject.source === 'project'
+            ? resolvedProject.path
+            : undefined,
         permissionMode: data.permissionMode,
       });
       runId = result.runId;

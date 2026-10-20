@@ -28,6 +28,7 @@ import {
   InMemoryElicitationStore,
   createSubmitPlanTool,
   InMemoryPlanApprovalStore,
+  createRenderUiTool,
   TavilySearchProvider,
   SerperSearchProvider,
   type QuestionStore,
@@ -209,6 +210,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     // Plan approval (HITL): the tool defers to `ctx.askPlan`, which the kernel
     // wires to the injected PlanApprovalStore; the user decides over REST/WS.
     this.toolRegistry.register(asSystem(createSubmitPlanTool()));
+    this.toolRegistry.register(asSystem(createRenderUiTool()));
     // Plan tracking: update_plan writes / get_plan reads one shared store
     // (per-toolkit instance — concurrent agents must not share a plan).
     this.toolRegistry.register(asSystem(createUpdatePlanTool(this.planStore)));
