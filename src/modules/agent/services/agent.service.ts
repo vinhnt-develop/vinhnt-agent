@@ -540,7 +540,12 @@ export class AgentService implements OnModuleInit {
         // the configService legs here were dead: settings always full).
         maxSteps: settings?.maxSteps ?? 30,
         maxTokens: settings?.maxTokens ?? 4096,
-        stepTimeout: settings?.stepTimeout ?? 120_000,
+        // The kernel step timer must outlive a blocked HITL form; the
+        // elicitation store enforces the real deadline on its own.
+        stepTimeout: Math.max(
+          settings?.stepTimeout ?? 120_000,
+          this.agentToolkit.getElicitTimeoutMs() + 30_000,
+        ),
         maxToolCallsPerStep: settings?.maxToolCallsPerStep ?? 10,
         maxConcurrentToolCalls: settings?.maxConcurrentToolCalls ?? 5,
 
@@ -639,6 +644,7 @@ export class AgentService implements OnModuleInit {
         // arrives over REST/WS and resumes the blocked run.
         elicitations: {
           elicitStore: this.agentToolkit.getElicitationStore(),
+          elicitTimeoutMs: this.agentToolkit.getElicitTimeoutMs(),
         },
 
         // Human-in-the-loop plan approval: the kernel wires `ToolContext.askPlan`

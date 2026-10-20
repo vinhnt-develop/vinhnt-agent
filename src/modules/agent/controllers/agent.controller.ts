@@ -4,6 +4,7 @@ import {
   Get,
   Body,
   Param,
+  Query,
   HttpCode,
   HttpStatus,
   NotFoundException,
@@ -287,7 +288,9 @@ export class AgentController {
   @Get('elicitations/pending')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List agent elicitation requests awaiting a user reply' })
-  async getPendingElicitations(): Promise<ApiResponse<Array<{
+  async getPendingElicitations(
+    @Query('sessionId') sessionId?: string,
+  ): Promise<ApiResponse<Array<{
     id: string;
     runId: string;
     sessionId: string;
@@ -298,7 +301,7 @@ export class AgentController {
     expiresAt?: number;
   }>>> {
     const store = this.agentService.getAgentToolkit().getElicitationStore();
-    const pending = store.pendingRequests().map((r) => ({
+    const pending = store.pendingRequests(undefined, sessionId).map((r) => ({
       id: r.requestId,
       runId: r.runId,
       sessionId: r.sessionId,
@@ -329,7 +332,18 @@ export class AgentController {
     const store = this.agentService.getAgentToolkit().getElicitationStore();
     const req = store.getRequest(id);
     if (!req) {
-      throw new NotFoundException('Elicitation request not found or already resolved');
+      if (store.wasSettled(id)) {
+        throw new ConflictException({
+          error: 'already_resolved',
+          errorCode: 'already_resolved',
+          message: 'Elicitation request already resolved.',
+        });
+      }
+      throw new NotFoundException({
+        error: 'elicitation_not_found',
+        errorCode: 'elicitation_not_found',
+        message: 'Elicitation request not found.',
+      });
     }
     store.resolveRequest(id, {
       action: body.action,

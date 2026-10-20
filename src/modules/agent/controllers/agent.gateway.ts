@@ -836,7 +836,10 @@ export class AgentGateway
       }
       const store = this.agentService.getAgentToolkit().getElicitationStore();
       if (!store.getRequest(data.id)) {
-        return { ok: false, error: 'Elicitation request not found or already resolved' };
+        return {
+          ok: false,
+          error: store.wasSettled(data.id) ? 'already_resolved' : 'elicitation_not_found',
+        };
       }
       store.resolveRequest(data.id, {
         action: data.action,

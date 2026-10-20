@@ -158,7 +158,7 @@ describe('AgentGateway.transformEvent (questions)', () => {
 describe('AgentGateway WS reply handlers', () => {
   const approvalStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
   const questionStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
-  const elicitationStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
+  const elicitationStore = { resolveRequest: jest.fn(), getRequest: jest.fn(), wasSettled: jest.fn() };
   const planApprovalStore = { resolveRequest: jest.fn(), getRequest: jest.fn() };
   const agentService = {
     getAgentToolkit: () => ({
@@ -246,11 +246,20 @@ describe('AgentGateway WS reply handlers', () => {
 
   it('acks not-found without resolving an elicitation', () => {
     elicitationStore.getRequest.mockReturnValue(undefined);
+    elicitationStore.wasSettled.mockReturnValue(false);
     const ack = gateway.handleElicitationReply(client, { id: 'gone', action: 'cancel' });
     expect(ack).toEqual({
       ok: false,
-      error: 'Elicitation request not found or already resolved',
+      error: 'elicitation_not_found',
     });
+    expect(elicitationStore.resolveRequest).not.toHaveBeenCalled();
+  });
+
+  it('acks already_resolved for a settled elicitation', () => {
+    elicitationStore.getRequest.mockReturnValue(undefined);
+    elicitationStore.wasSettled.mockReturnValue(true);
+    const ack = gateway.handleElicitationReply(client, { id: 'done', action: 'cancel' });
+    expect(ack).toEqual({ ok: false, error: 'already_resolved' });
     expect(elicitationStore.resolveRequest).not.toHaveBeenCalled();
   });
 
