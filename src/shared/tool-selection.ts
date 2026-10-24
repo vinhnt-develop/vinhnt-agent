@@ -26,10 +26,29 @@ export function isSelectableToolSource(id: string, source?: string): boolean {
   return id.startsWith('custom_') || id.startsWith('mcp__');
 }
 
+/** Kernel-only tools that must survive the composer whitelist. */
+export const KERNEL_ONLY_SYSTEM_TOOL_IDS = [
+  'memory_search',
+  'spawn_agent',
+  'delegate',
+  'delegate_batch',
+  'create_agent',
+  'list_agents',
+];
+
+/** Handoff tool ids are derived from the live roster, not hardcoded per agent. */
+export function collectHandoffToolIds(
+  agentIds: readonly (string | undefined)[],
+): string[] {
+  return agentIds
+    .filter((id): id is string => Boolean(id))
+    .map((id) => `transfer_to_${id}`);
+}
+
 /** System tool ids from raw toolkit definitions plus kernel-only ids. */
 export function resolveSystemToolIds(
   defs: Array<{ id?: string; name?: string; metadata?: { source?: string } }>,
-  kernelOnlyIds: string[] = ['memory_search'],
+  kernelOnlyIds: string[] = KERNEL_ONLY_SYSTEM_TOOL_IDS,
 ): string[] {
   const ids: string[] = [];
   for (const def of defs) {

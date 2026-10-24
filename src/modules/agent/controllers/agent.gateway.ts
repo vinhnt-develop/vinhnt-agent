@@ -1,4 +1,4 @@
-import {
+﻿import {
   WebSocketGateway,
   WebSocketServer,
   SubscribeMessage,
@@ -13,6 +13,7 @@ import { Server, Socket } from 'socket.io';
 import { AgentService } from '../services';
 import { AgentRunTrackingService } from '../services/agent-run-tracking.service';
 import { AgentSettingsService } from '../services/agent-settings.service';
+import type { ImageAttachmentInput } from '../services/image-attachment.service';
 import {
   extractBearerOrCookie,
   verifyAccessToken,
@@ -37,6 +38,7 @@ const RUN_ERROR_TTL_MS = 5 * 60 * 1000;
     credentials: true,
   },
   namespace: '/agent',
+  maxHttpBufferSize: 20 * 1024 * 1024,
 })
 export class AgentGateway
   implements
@@ -63,19 +65,19 @@ export class AgentGateway
     }
   >();
 
-  /** Map runId → socket ID for targeted event emission. */
+  /** Map runId â†’ socket ID for targeted event emission. */
   private runToClient = new Map<string, string>();
 
-  /** Map runId → sessionId for client-side filtering. */
+  /** Map runId â†’ sessionId for client-side filtering. */
   private runToSession = new Map<string, string>();
 
-  /** `${runId}:${toolId}` → invoke timestamp (durationMs for tool.* events). */
+  /** `${runId}:${toolId}` â†’ invoke timestamp (durationMs for tool.* events). */
   private toolStartTimes = new Map<string, number>();
 
-  /** `${runId}:${toolId}` → duration computed at completion, consumed by transform. */
+  /** `${runId}:${toolId}` â†’ duration computed at completion, consumed by transform. */
   private toolResultDurations = new Map<string, number>();
 
-  /** toolName → { source, risk } lazy catalog (TTL-refreshed). */
+  /** toolName â†’ { source, risk } lazy catalog (TTL-refreshed). */
   private toolMetaCache: Map<string, { source: string; risk?: string }> | null =
     null;
   private toolMetaCacheAt = 0;
@@ -96,13 +98,17 @@ export class AgentGateway
         const runId = (event as any).aggregateId as string | undefined;
         if (!runId) return;
 
+        // Sub-agent runs only exist on the bus. Persist their lineage before
+        // the clientId check so Agent tree is durable even for HTTP-only runs.
+        this.trackRunLifecycle(event, runId);
+
         // Tool events flow through the EventBus (handle.events() only yields
-        // agent.started/completed/error) — persist tool_executions here so
+        // agent.started/completed/error) ï¿½?" persist tool_executions here so
         // both WS and HTTP runs are tracked. Must run before the clientId
         // check below: rows are needed even when no client is attached.
         this.trackToolEvent(event, runId);
         // P6.1: usage facts (token.counted/model.cost/run.completed) must be
-        // captured for HTTP runs too — runs without a WS client still need the
+        // captured for HTTP runs too â€” runs without a WS client still need the
         // full terminal payload (reasoning/cache tokens, cost, stopReason).
         this.trackUsageEvent(event, runId);
 
@@ -117,7 +123,7 @@ export class AgentGateway
 
         // Derive a snapshot-style todo event from the todowrite tool output so
         // the UI can track the live task list (the SDK tool returns the full
-        // `todos` list on every call — last-write-wins, no deltas).
+        // `todos` list on every call â€” last-write-wins, no deltas).
         const todoUpdate = this.deriveTodoUpdate(event, runId, sessionId);
         if (todoUpdate) {
           this.server?.to(clientId).emit('run:event', todoUpdate);
@@ -144,6 +150,41 @@ export class AgentGateway
     if (this.errorCleanupInterval) {
       clearInterval(this.errorCleanupInterval);
     }
+  }
+
+  /**
+   * Persist child-run lifecycle observed on the bus. Top-level runs are
+   * created by AgentService before `run.started`; only events carrying a
+   * `parentRunId` belong to this path.
+   */
+  private trackRunLifecycle(
+    event: { type?: string; traceId?: string; data?: unknown },
+    runId: string,
+  ): void {
+    if (event.type !== 'run.started' && event.type !== 'run.completed') return;
+    const data = (event.data ?? {}) as Record<string, unknown>;
+
+    if (event.type === 'run.started') {
+      const parentRunId =
+        typeof data.parentRunId === 'string' ? data.parentRunId : undefined;
+      if (!parentRunId) return;
+      this.trackingService.startChildRun({
+        runId,
+        parentRunId,
+        sessionId: typeof data.sessionId === 'string' ? data.sessionId : undefined,
+        agentId: typeof data.agentId === 'string' ? data.agentId : undefined,
+        traceId: typeof event.traceId === 'string' ? event.traceId : undefined,
+        model: typeof data.model === 'string' ? data.model : undefined,
+        provider: typeof data.provider === 'string' ? data.provider : undefined,
+        subAgent:
+          data.subAgent && typeof data.subAgent === 'object'
+            ? (data.subAgent as Record<string, unknown>)
+            : undefined,
+      });
+      return;
+    }
+
+    this.trackingService.completeChildRun({ runId, result: data });
   }
 
   private trackToolEvent(event: { type?: string; data?: unknown }, runId: string): void {
@@ -235,13 +276,26 @@ export class AgentGateway
       return;
     }
     try {
-      verifyAccessToken(token, secret);
+      const payload = verifyAccessToken(token, secret);
+      (client.data as { userId?: unknown; appId?: unknown }).userId = payload.id;
+      if (payload.appId) {
+        (client.data as { userId?: unknown; appId?: unknown }).appId = payload.appId;
+      } else if (payload.tenantId) {
+        (client.data as { userId?: unknown; appId?: unknown }).appId = payload.tenantId;
+      }
     } catch {
       this.logger.warn(`Rejected WS connection with invalid token: ${client.id}`);
       client.disconnect(true);
       return;
     }
     this.logger.log(`Client connected: ${client.id}`);
+  }
+
+  private actorIdFor(client: Socket): { userId?: string; appId?: string } | undefined {
+    const data = client.data as { userId?: unknown; appId?: unknown };
+    const userId = typeof data.userId === 'string' ? data.userId : undefined;
+    const appId = typeof data.appId === 'string' ? data.appId : undefined;
+    return userId || appId ? { userId, appId } : undefined;
   }
 
   handleDisconnect(client: Socket) {
@@ -263,7 +317,7 @@ export class AgentGateway
       prompt: string;
       model?: string;
       provider?: string;
-      // P4.2: the client no longer sends `settings` — a client snapshot goes
+      // P4.2: the client no longer sends `settings` â€” a client snapshot goes
       // stale the moment the user hits Save in Settings (it used to pin
       // maxTokens at 4096 even after Settings showed 16000). Kernel params
       // always come from the server-side saved settings; only explicit
@@ -273,6 +327,10 @@ export class AgentGateway
         tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
         knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
       };
+      /** Project-relative paths attached by the composer. */
+      attachments?: string[];
+      /** Pasted images delivered as multimodal user content parts. */
+      images?: ImageAttachmentInput[];
     },
   ) {
     const runStartedAt = Date.now();
@@ -317,8 +375,11 @@ export class AgentGateway
         return;
       }
 
+      const scope = this.actorIdFor(client);
       const result = await this.agentService.runAgentStreaming({
         ...data,
+        actorId: scope?.userId,
+        appId: scope?.appId,
         settings: savedSettings,
         projectPath:
           resolvedProject.source === 'project'
@@ -338,7 +399,7 @@ export class AgentGateway
         eventCount++;
         // Tool.* events are persisted via onModuleInit's eventBus
         // subscription (handle.events() only yields agent.started/completed/
-        // error) — no tracking here to avoid double-inserting rows.
+        // error) â€” no tracking here to avoid double-inserting rows.
       }
 
       const completed = await handle.completed;
@@ -375,6 +436,7 @@ export class AgentGateway
           errorMessage: 'Run cancelled by user',
           stopReason: 'cancelled',
         });
+        this.agentService.cleanupRun(runId, data.sessionId);
         client.emit('run:cancelled', {
           runId,
           sessionId: data.sessionId,
@@ -398,6 +460,8 @@ export class AgentGateway
           durationMs,
           errorMessage: errorMsg,
         });
+
+        this.agentService.cleanupRun(runId, data.sessionId);
 
         if (isSdkError(rawError)) {
           this.runErrors.set(runId, {
@@ -424,7 +488,7 @@ export class AgentGateway
           ...(errRetryable !== undefined ? { retryable: errRetryable } : {}),
         });
       } else {
-        // P6.1: single payload builder — persists the full usage set (WS path
+        // P6.1: single payload builder â€” persists the full usage set (WS path
         // used to drop reasoning/cache tokens + cost + stopReason here), then
         // reuses the same values for the client emit.
         const payload = this.trackingService.completeRunFromResult({
@@ -432,6 +496,7 @@ export class AgentGateway
           result: completed,
           durationMs,
         });
+        this.agentService.cleanupRun(runId, data.sessionId);
         this.logger.log(
           `Run OK | runId=${runId} session=${data.sessionId} duration=${durationMs}ms events=${eventCount} tools=${this.trackingService.getToolCallsCount(runId) ?? 0} tokens=${payload.inputTokens ?? 0}+${payload.outputTokens ?? 0}`,
         );
@@ -466,6 +531,7 @@ export class AgentGateway
           durationMs,
           errorMessage: errorMsg,
         });
+        this.agentService.cleanupRun(runId, data.sessionId);
         this.runToClient.delete(runId);
         this.runToSession.delete(runId);
         if (isSdkError(error)) {
@@ -495,7 +561,7 @@ export class AgentGateway
    * drops the mapping, so a mid-run blip orphans the run and the UI spins
    * forever. The client emits run:attach with the sessionId; we rebind any
    * still-active run (or answer runId: null when it already finished while
-   * the client was away — the client then finalizes from REST).
+   * the client was away â€” the client then finalizes from REST).
    */
   @SubscribeMessage('run:attach')
   handleAttach(
@@ -509,17 +575,28 @@ export class AgentGateway
     }
     const active = this.trackingService.findActiveRunForSession(sessionId);
     if (!active) {
-      this.logger.log(`Attach: no active run for session ${sessionId}`);
-      client.emit('run:attach', { sessionId, runId: null });
+      const resumable = this.agentService.getResumableRun(sessionId);
+      this.logger.log(
+        resumable
+          ? `Attach: interrupted run ${resumable.runId} for session ${sessionId} is resumable`
+          : `Attach: no active run for session ${sessionId}`,
+      );
+      client.emit('run:attach', {
+        sessionId,
+        runId: null,
+        ...(resumable
+          ? { resumable: true, resumableRunId: resumable.runId }
+          : {}),
+      });
       return;
     }
     // P4.2: only rebind when THIS process holds a live handle. A DB row that
-    // says 'running' after a restart is an orphan — the UI would spin forever
+    // says 'running' after a restart is an orphan â€” the UI would spin forever
     // waiting for events that will never come. Answer resumable:true so the
     // client can offer Resume (POST /agent/resume) instead of hanging.
     if (!this.agentService.isRunActive(active.id)) {
       this.logger.log(
-        `Attach: run ${active.id} for session ${sessionId} is in DB but not live in this process — marking resumable`,
+        `Attach: run ${active.id} for session ${sessionId} is in DB but not live in this process â€” marking resumable`,
       );
       client.emit('run:attach', { sessionId, runId: null, resumable: true, resumableRunId: active.id });
       return;
@@ -528,6 +605,17 @@ export class AgentGateway
     this.runToSession.set(active.id, sessionId);
     this.logger.log(`Attach: run ${active.id} rebound to ${client.id}`);
     client.emit('run:attach', { sessionId, runId: active.id });
+  }
+
+  private async resolveRunProjectPath(
+    sessionId?: string,
+  ): Promise<string | undefined> {
+    if (!sessionId) return undefined;
+    const resolved = await this.projectPathService.resolveDetails(sessionId);
+    if (resolved.status !== 'ok') {
+      throw new Error(projectDirectoryError(resolved).message as string);
+    }
+    return resolved.source === 'project' ? resolved.path : undefined;
   }
 
   /**
@@ -546,28 +634,44 @@ export class AgentGateway
         return;
       }
       this.logger.log(`Resume requested by ${client.id} for run ${data.runId}`);
+      const run = this.agentService.getRunInfo(data.runId);
+      const sessionId = run?.sessionId ?? undefined;
+      const projectPath = await this.resolveRunProjectPath(sessionId);
+      // Bind before awaiting resumeRun; it resolves only when the run ends.
+      this.runToClient.set(data.runId, client.id);
+      if (sessionId) this.runToSession.set(data.runId, sessionId);
+      client.emit('run:started', { runId: data.runId, sessionId });
       const settings = this.settingsService.getSettings();
+      const scope = this.actorIdFor(client);
+      // Pass a continuation prompt so the model generates output on resume
+      const resumePrompt = data.prompt?.trim() ?? 'Please continue from where you left off.';
       const result = await this.agentService.resumeRun({
         runId: data.runId,
+        actorId: scope?.userId,
+        appId: scope?.appId,
         prompt: data.prompt ?? '',
         model: data.model,
         provider: data.provider,
         permissionMode: data.permissionMode,
+        projectPath,
         settings,
       });
       if (result.status === 'failed') {
-        client.emit('run:error', { runId: data.runId, error: result.output ?? result.error ?? 'Resume failed' });
+        this.runToClient.delete(data.runId);
+        this.runToSession.delete(data.runId);
+        client.emit('run:error', { runId: data.runId, sessionId, error: result.output ?? result.error ?? 'Resume failed' });
         return;
       }
-      // Bind this client to the resumed run so subsequent events route here.
-      this.runToClient.set(data.runId, client.id);
-      const sessionId = (result as { sessionId?: string }).sessionId;
-      if (sessionId) this.runToSession.set(data.runId, sessionId);
       client.emit('run:resumed', { runId: data.runId, sessionId, status: result.status });
     } catch (error) {
       const errorMsg = extractActualErrorMessage(error);
-      this.logger.error(`Resume failed for run ${data.runId}: ${errorMsg}`);
-      client.emit('run:error', { runId: data.runId, error: errorMsg });
+      const runId = data?.runId;
+      this.logger.error(`Resume failed for run ${runId ?? 'unknown'}: ${errorMsg}`);
+      if (runId) {
+        this.runToClient.delete(runId);
+        this.runToSession.delete(runId);
+      }
+      client.emit('run:error', { runId, error: errorMsg });
     }
   }
 
@@ -593,13 +697,13 @@ export class AgentGateway
         // Answer from persisted status so the client gets an honest,
         // idempotent reply instead of a scary error after a successful Stop.
         client.emit('run:error', {
-          error: `Run already ${result.status} — cannot cancel`,
+          error: `Run already ${result.status} â€” cannot cancel`,
           runId,
           sessionId,
         });
       } else {
         client.emit('run:error', {
-          error: 'Run not found or already completed — cannot cancel',
+          error: 'Run not found or already completed â€” cannot cancel',
           runId,
           sessionId,
         });
@@ -638,7 +742,7 @@ export class AgentGateway
         message: data.message,
       });
       this.logger.log(
-        `run:input from ${client.id} → status=${result.status} run=${result.runId ?? 'n/a'}`,
+        `run:input from ${client.id} â†’ status=${result.status} run=${result.runId ?? 'n/a'}`,
       );
       return {
         ok: result.queued,
@@ -700,7 +804,7 @@ export class AgentGateway
         }),
       });
       this.logger.log(
-        `ui.action ${actionId}@${surfaceId} from ${client.id} → status=${result.status}`,
+        `ui.action ${actionId}@${surfaceId} from ${client.id} â†’ status=${result.status}`,
       );
       return {
         ok: result.queued,
@@ -763,10 +867,12 @@ export class AgentGateway
         return { ok: false, error: 'reason must be a string when provided' };
       }
       const store = this.agentService.getAgentToolkit().getApprovalStore();
-      if (!store.getRequest(data.id)) {
+      const req = store.getRequest(data.id);
+      if (!req) {
         return { ok: false, error: 'Permission request not found or already resolved' };
       }
       store.resolveRequest(data.id, data.reply, data.reason);
+      this.resumeAfterHitl(req.runId);
       this.logger.log(`Permission ${data.id} resolved via WS from ${client.id}: ${data.reply}`);
       return { ok: true, id: data.id };
     } catch (error) {
@@ -799,13 +905,15 @@ export class AgentGateway
         return { ok: false, error: 'answers are required when action is "accept"' };
       }
       const store = this.agentService.getAgentToolkit().getQuestionStore();
-      if (!store.getRequest(data.id)) {
+      const req = store.getRequest(data.id);
+      if (!req) {
         return { ok: false, error: 'Question request not found or already resolved' };
       }
       store.resolveRequest(data.id, {
         action: data.action,
         ...(data.answers ? { answers: data.answers } : {}),
       });
+      this.resumeAfterHitl(req.runId, req.sessionId);
       this.logger.log(`Question ${data.id} resolved via WS from ${client.id}: ${data.action}`);
       return { ok: true, id: data.id };
     } catch (error) {
@@ -835,7 +943,8 @@ export class AgentGateway
         return { ok: false, error: 'action must be one of: accept, decline, cancel' };
       }
       const store = this.agentService.getAgentToolkit().getElicitationStore();
-      if (!store.getRequest(data.id)) {
+      const req = store.getRequest(data.id);
+      if (!req) {
         return {
           ok: false,
           error: store.wasSettled(data.id) ? 'already_resolved' : 'elicitation_not_found',
@@ -845,6 +954,7 @@ export class AgentGateway
         action: data.action,
         ...(data.content ? { content: data.content } : {}),
       });
+      this.resumeAfterHitl(req.runId, req.sessionId);
       this.logger.log(`Elicitation ${data.id} resolved via WS from ${client.id}: ${data.action}`);
       return { ok: true, id: data.id };
     } catch (error) {
@@ -874,13 +984,15 @@ export class AgentGateway
         return { ok: false, error: 'decision must be one of: approve, request_changes, cancel' };
       }
       const store = this.agentService.getAgentToolkit().getPlanApprovalStore();
-      if (!store.getRequest(data.id)) {
+      const req = store.getRequest(data.id);
+      if (!req) {
         return { ok: false, error: 'Plan request not found or already resolved' };
       }
       store.resolveRequest(data.id, {
         decision: data.decision,
         ...(data.feedback ? { feedback: data.feedback } : {}),
       });
+      this.resumeAfterHitl(req.runId, req.sessionId);
       this.logger.log(`Plan ${data.id} decided via WS from ${client.id}: ${data.decision}`);
       return { ok: true, id: data.id };
     } catch (error) {
@@ -890,10 +1002,30 @@ export class AgentGateway
     }
   }
 
+  private resumeAfterHitl(runId: string, sessionId?: string): void {
+    try {
+      const resolvedSessionId =
+        sessionId ?? this.agentService.getRunInfo?.(runId)?.sessionId ?? undefined;
+      void this.resolveRunProjectPath(resolvedSessionId)
+        .then((projectPath) => {
+          this.agentService.resumeRunAfterHitl?.({
+            runId,
+            projectPath,
+            settings: this.settingsService.getSettings(),
+          });
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(`Could not auto-resume run ${runId} after HITL: ${error}`);
+        });
+    } catch (error) {
+      this.logger.warn(`Could not auto-resume run ${runId} after HITL: ${error}`);
+    }
+  }
+
   /**
    * Turn a completed `todowrite` tool call into a `todo.updated` snapshot event
    * for the UI. The SDK tool returns the full task list in its output, so this
-   * is a pure projection — no new state, last-write-wins.
+   * is a pure projection â€” no new state, last-write-wins.
    */
   private deriveTodoUpdate(
     event: any,
@@ -1010,7 +1142,7 @@ export class AgentGateway
   }
 
   /**
-   * Lazy tool catalog: toolName → { source, risk }, refreshed every 15s so
+   * Lazy tool catalog: toolName â†’ { source, risk }, refreshed every 15s so
    * MCP/custom tool registration is picked up without a restart.
    */
   private getToolMeta(
@@ -1043,7 +1175,7 @@ export class AgentGateway
           });
         }
       } catch {
-        // toolkit unavailable — fall through with empty cache
+        // toolkit unavailable â€” fall through with empty cache
       }
       this.toolMetaCache = cache;
       this.toolMetaCacheAt = now;

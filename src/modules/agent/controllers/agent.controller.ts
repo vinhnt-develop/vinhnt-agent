@@ -1,7 +1,8 @@
-import {
+﻿import {
   Controller,
   Post,
   Get,
+  Delete,
   Body,
   Param,
   Query,
@@ -10,11 +11,17 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  UploadedFile,
+  UseInterceptors,
+  Logger,
+  Req,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiBody,
+  ApiConsumes,
   ApiExtraModels,
 } from '@nestjs/swagger';
 import { ApiDataResponse } from '@/common/decorators';
@@ -28,7 +35,14 @@ import type {
   ElicitationRequestedSchema,
 } from '@vinhnt-sdk/schema';
 import type { QuestionAction, ElicitationAction, PlanDecision } from '@vinhnt-sdk/tools';
-import { AgentService, AgentSettingsService } from '../services';
+import {
+  AgentService,
+  AgentSettingsService,
+  AttachmentService,
+  MAX_UPLOAD_BYTES,
+  type UploadedFileInput,
+  type SavedUpload,
+} from '../services';
 import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { ProjectPathService, projectDirectoryError } from '@/shared/project-path.service';
@@ -37,11 +51,14 @@ import { ProjectPathService, projectDirectoryError } from '@/shared/project-path
 @ApiExtraModels(RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto)
 @Controller({ path: 'agent', version: '1' })
 export class AgentController {
+  private readonly logger = new Logger(AgentController.name);
+
   constructor(
     private readonly agentService: AgentService,
     private readonly settingsService: AgentSettingsService,
     private readonly sessionRepository: SessionRepository,
     private readonly projectPathService: ProjectPathService,
+    private readonly attachmentService: AttachmentService,
   ) {}
 
   @Post('run')
@@ -51,6 +68,7 @@ export class AgentController {
   @ApiDataResponse(RunAgentResponseDto)
   async run(
     @Body() dto: RunAgentDto,
+    @Req() req: { user?: { id?: string; sub?: string; appId?: string; tenantId?: string } },
   ): Promise<ApiResponse<RunAgentResponseDto>> {
     const session = await this.sessionRepository.findById(dto.sessionId);
     if (!session) {
@@ -69,11 +87,15 @@ export class AgentController {
     const result = await this.agentService.runAgent({
       sessionId: dto.sessionId,
       prompt: dto.prompt,
+      actorId: req.user?.id ?? req.user?.sub,
+      appId: req.user?.appId ?? req.user?.tenantId,
       model: dto.model,
       provider: dto.provider,
       projectPath,
       permissionMode: dto.permissionMode,
       selection: dto.selection,
+      attachments: dto.attachments,
+      images: dto.images,
       settings,
     });
     return formatResponse.single(
@@ -81,6 +103,53 @@ export class AgentController {
       result,
       'Agent run completed.',
     );
+  }
+
+  @Post('uploads')
+  @HttpCode(HttpStatus.CREATED)
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 } }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({ summary: 'Upload a file into the session project' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['sessionId', 'file'],
+      properties: {
+        sessionId: { type: 'string' },
+        file: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  async upload(
+    @Body() body: { sessionId?: string },
+    @UploadedFile() file?: UploadedFileInput,
+  ): Promise<ApiResponse<SavedUpload>> {
+    if (!body?.sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+    if (!file) {
+      throw new BadRequestException('file is required');
+    }
+    const session = await this.sessionRepository.findById(body.sessionId);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    const resolved = await this.projectPathService.resolveDetails(body.sessionId);
+    if (resolved.status !== 'ok') {
+      throw new ConflictException(projectDirectoryError(resolved));
+    }
+    const data = await this.attachmentService.saveUpload(
+      file,
+      resolved.path,
+      body.sessionId,
+    );
+    return {
+      status: 'success',
+      message: 'File uploaded.',
+      data,
+    };
   }
 
   @Post('cancel')
@@ -108,18 +177,21 @@ export class AgentController {
   @ApiDataResponse(RunAgentResponseDto)
   async resume(
     @Body() body: { runId: string; prompt?: string; model?: string; provider?: string },
+    @Req() req: { user?: { id?: string; sub?: string } },
   ): Promise<ApiResponse<RunAgentResponseDto>> {
     if (!body?.runId) {
       throw new BadRequestException('runId is required');
     }
-    // sessionId/projectPath are resolved from the persisted run row inside
-    // resumeRun; the client may override model/provider for the resumed kernel.
+    const run = this.agentService.getRunInfo(body.runId);
+    const projectPath = await this.resolveRunProjectPath(run?.sessionId ?? undefined);
     const settings = this.settingsService.getSettings();
     const result = await this.agentService.resumeRun({
       runId: body.runId,
-      prompt: body.prompt ?? '',
+      prompt: body.prompt?.trim() ?? 'Please continue from where you left off.',
+      actorId: req.user?.id ?? req.user?.sub,
       model: body.model,
       provider: body.provider,
+      projectPath,
       settings,
     });
     return formatResponse.single(
@@ -127,6 +199,80 @@ export class AgentController {
       result,
       result.status === 'failed' ? 'Resume failed.' : 'Run resumed.',
     );
+  }
+
+  private async resolveRunProjectPath(
+    sessionId?: string,
+  ): Promise<string | undefined> {
+    if (!sessionId) return undefined;
+    const resolved = await this.projectPathService.resolveDetails(sessionId);
+    if (resolved.status !== 'ok') {
+      throw new ConflictException(projectDirectoryError(resolved));
+    }
+    return resolved.source === 'project' ? resolved.path : undefined;
+  }
+
+  @Get('runs/resumable')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get the latest interrupted run for a session' })
+  async getResumableRun(
+    @Query('sessionId') sessionId?: string,
+  ): Promise<ApiResponse<{
+    runId: string;
+    sessionId: string;
+    startedAt?: string;
+    model?: string;
+    provider?: string;
+  } | null>> {
+    if (!sessionId) {
+      throw new BadRequestException('sessionId is required');
+    }
+    return {
+      status: 'success',
+      data: this.agentService.getResumableRun(sessionId),
+    };
+  }
+
+  @Get('runs/:runId/snapshots')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List file snapshots captured by a run' })
+  async getRunSnapshots(@Param('runId') runId: string): Promise<ApiResponse<Array<{
+    path: string;
+    existed: boolean;
+    size: number;
+    toolCallId: string;
+    toolName: string;
+    step: number;
+    at: string;
+    undone: boolean;
+  }>>> {
+    const snapshots = this.agentService.getRunFileSnapshots(runId);
+    if (snapshots === null) {
+      throw new NotFoundException('Run snapshots are no longer available');
+    }
+    return {
+      status: 'success',
+      message: 'Snapshots retrieved.',
+      data: snapshots,
+    };
+  }
+
+  @Post('runs/:runId/undo')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Undo file changes made by a run' })
+  async undoRun(@Param('runId') runId: string): Promise<ApiResponse<{
+    restored: unknown[];
+    skipped: unknown[];
+  }>> {
+    const result = await this.agentService.undoRunFiles(runId);
+    if (result === null) {
+      throw new NotFoundException('Run snapshots are no longer available');
+    }
+    return {
+      status: 'success',
+      message: 'Run files restored.',
+      data: result,
+    };
   }
 
   @Get('stats')
@@ -172,9 +318,12 @@ export class AgentController {
   @Get('permissions/pending')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List pending tool-approval requests' })
-  async getPendingPermissions(): Promise<ApiResponse<Array<{
+  async getPendingPermissions(
+    @Query('sessionId') sessionId?: string,
+  ): Promise<ApiResponse<Array<{
     id: string;
     runId: string;
+    sessionId?: string | null;
     toolName: string;
     resource: string;
     reason: string;
@@ -184,17 +333,21 @@ export class AgentController {
     source?: string;
   }>>> {
     const store = this.agentService.getAgentToolkit().getApprovalStore();
-    const pending = store.pendingRequests().map((r) => ({
-      id: r.id,
-      runId: r.runId,
-      toolName: r.toolName,
-      resource: r.resource,
-      reason: r.reason,
-      prompt: r.prompt,
-      occurredAt: r.occurredAt,
-      ...(r.scope !== undefined ? { scope: r.scope } : {}),
-      ...(r.source !== undefined ? { source: r.source } : {}),
-    }));
+    const pending = store
+      .pendingRequests()
+      .map((r) => ({
+        id: r.id,
+        runId: r.runId,
+        sessionId: this.agentService.getRunInfo(r.runId)?.sessionId ?? null,
+        toolName: r.toolName,
+        resource: r.resource,
+        reason: r.reason,
+        prompt: r.prompt,
+        occurredAt: r.occurredAt,
+        ...(r.scope !== undefined ? { scope: r.scope } : {}),
+        ...(r.source !== undefined ? { source: r.source } : {}),
+      }))
+      .filter((r) => !sessionId || r.sessionId === sessionId);
     return {
       status: 'success',
       message: 'Pending permissions retrieved.',
@@ -221,6 +374,7 @@ export class AgentController {
       throw new NotFoundException('Permission request not found or already resolved');
     }
     store.resolveRequest(id, body.reply, body.reason);
+    this.resumeAfterHitl(req.runId);
     return {
       status: 'success',
       message: 'Permission resolved.',
@@ -231,7 +385,9 @@ export class AgentController {
   @Get('questions/pending')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List agent questions awaiting a user reply' })
-  async getPendingQuestions(): Promise<ApiResponse<Array<{
+  async getPendingQuestions(
+    @Query('sessionId') sessionId?: string,
+  ): Promise<ApiResponse<Array<{
     id: string;
     runId: string;
     sessionId: string;
@@ -240,14 +396,17 @@ export class AgentController {
     expiresAt?: number;
   }>>> {
     const store = this.agentService.getAgentToolkit().getQuestionStore();
-    const pending = store.pendingRequests().map((r) => ({
-      id: r.requestId,
-      runId: r.runId,
-      sessionId: r.sessionId,
-      questions: r.questions,
-      ...(r.allowCustom !== undefined ? { allowCustom: r.allowCustom } : {}),
-      ...(r.expiresAt !== undefined ? { expiresAt: r.expiresAt } : {}),
-    }));
+    const pending = store
+      .pendingRequests()
+      .filter((r) => !sessionId || r.sessionId === sessionId)
+      .map((r) => ({
+        id: r.requestId,
+        runId: r.runId,
+        sessionId: r.sessionId,
+        questions: r.questions,
+        ...(r.allowCustom !== undefined ? { allowCustom: r.allowCustom } : {}),
+        ...(r.expiresAt !== undefined ? { expiresAt: r.expiresAt } : {}),
+      }));
     return {
       status: 'success',
       message: 'Pending questions retrieved.',
@@ -278,6 +437,7 @@ export class AgentController {
       action: body.action,
       ...(body.answers ? { answers: body.answers } : {}),
     });
+    this.resumeAfterHitl(req.runId, req.sessionId);
     return {
       status: 'success',
       message: 'Question resolved.',
@@ -349,6 +509,7 @@ export class AgentController {
       action: body.action,
       ...(body.content ? { content: body.content } : {}),
     });
+    this.resumeAfterHitl(req.runId, req.sessionId);
     return {
       status: 'success',
       message: 'Elicitation resolved.',
@@ -356,10 +517,75 @@ export class AgentController {
     };
   }
 
+  @Get('sessions/:id/surfaces')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List persisted generative-UI surfaces for a session' })
+  async getSessionSurfaces(
+    @Param('id') id: string,
+  ): Promise<ApiResponse<Array<{
+    surfaceId: string;
+    surface: unknown;
+    updatedAt: string;
+  }>>> {
+    const session = await this.sessionRepository.findById(id);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    const rows = await this.sessionRepository.findSurfaces(id);
+    return {
+      status: 'success',
+      message: 'Session surfaces retrieved.',
+      data: rows.map((row) => ({
+        surfaceId: row.surfaceId,
+        surface: row.payload,
+        updatedAt: row.updatedAt,
+      })),
+    };
+  }
+
+  @Delete('sessions/:id/surfaces/:surfaceId')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Dismiss one persisted generative-UI surface' })
+  async deleteSessionSurface(
+    @Param('id') id: string,
+    @Param('surfaceId') surfaceId: string,
+  ): Promise<ApiResponse<{ surfaceId: string; deleted: number }>> {
+    const session = await this.sessionRepository.findById(id);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    const result = await this.sessionRepository.deleteSurface(id, surfaceId);
+    return {
+      status: 'success',
+      message: 'Surface dismissed.',
+      data: { surfaceId, deleted: result.changes ?? 0 },
+    };
+  }
+
+  @Delete('sessions/:id/surfaces')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Dismiss all persisted generative-UI surfaces for a session' })
+  async deleteSessionSurfaces(
+    @Param('id') id: string,
+  ): Promise<ApiResponse<{ deleted: number }>> {
+    const session = await this.sessionRepository.findById(id);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    const result = await this.sessionRepository.deleteSurfaces(id);
+    return {
+      status: 'success',
+      message: 'Surfaces cleared.',
+      data: { deleted: result.changes ?? 0 },
+    };
+  }
+
   @Get('plans/pending')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'List agent plans awaiting a user decision' })
-  async getPendingPlans(): Promise<ApiResponse<Array<{
+  async getPendingPlans(
+    @Query('sessionId') sessionId?: string,
+  ): Promise<ApiResponse<Array<{
     id: string;
     runId: string;
     sessionId: string;
@@ -369,15 +595,18 @@ export class AgentController {
     expiresAt?: number;
   }>>> {
     const store = this.agentService.getAgentToolkit().getPlanApprovalStore();
-    const pending = store.pendingRequests().map((r) => ({
-      id: r.requestId,
-      runId: r.runId,
-      sessionId: r.sessionId,
-      ...(r.title !== undefined ? { title: r.title } : {}),
-      steps: r.steps,
-      ...(r.explanation !== undefined ? { explanation: r.explanation } : {}),
-      ...(r.expiresAt !== undefined ? { expiresAt: r.expiresAt } : {}),
-    }));
+    const pending = store
+      .pendingRequests()
+      .filter((r) => !sessionId || r.sessionId === sessionId)
+      .map((r) => ({
+        id: r.requestId,
+        runId: r.runId,
+        sessionId: r.sessionId,
+        ...(r.title !== undefined ? { title: r.title } : {}),
+        steps: r.steps,
+        ...(r.explanation !== undefined ? { explanation: r.explanation } : {}),
+        ...(r.expiresAt !== undefined ? { expiresAt: r.expiresAt } : {}),
+      }));
     return {
       status: 'success',
       message: 'Pending plans retrieved.',
@@ -405,10 +634,31 @@ export class AgentController {
       decision: body.decision,
       ...(body.feedback ? { feedback: body.feedback } : {}),
     });
+    this.resumeAfterHitl(req.runId, req.sessionId);
     return {
       status: 'success',
       message: 'Plan decision recorded.',
       data: { id, decision: body.decision },
     };
+  }
+
+  private resumeAfterHitl(runId: string, sessionId?: string): void {
+    try {
+      const resolvedSessionId =
+        sessionId ?? this.agentService.getRunInfo?.(runId)?.sessionId ?? undefined;
+      void this.resolveRunProjectPath(resolvedSessionId)
+        .then((projectPath) => {
+          this.agentService.resumeRunAfterHitl?.({
+            runId,
+            projectPath,
+            settings: this.settingsService.getSettings(),
+          });
+        })
+        .catch((error: unknown) => {
+          this.logger.warn(`Could not auto-resume run ${runId} after HITL: ${error}`);
+        });
+    } catch (error) {
+      this.logger.warn(`Could not auto-resume run ${runId} after HITL: ${error}`);
+    }
   }
 }
