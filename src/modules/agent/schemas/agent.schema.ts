@@ -9,9 +9,38 @@ export const memories = sqliteTable('memories', {
   key: text('key').notNull(),
   value: text('value').notNull(),
   tags: text('tags', { mode: 'json' }).default([]),
+  scope: text('scope').default('session').notNull(),
+  userId: text('user_id'),
+  appId: text('app_id'),
   createdAt: text('created_at').default(sql`(datetime('now'))`),
   updatedAt: text('updated_at').default(sql`(datetime('now'))`),
-});
+}, (table) => [
+  index('idx_memories_scope_user').on(table.scope, table.userId),
+  index('idx_memories_scope_app').on(table.scope, table.appId),
+]);
+
+/**
+ * Durable HITL requests. The SDK stores gate a run with in-memory promises;
+ * this table is the write-through audit/restart record so a crash does not
+ * silently lose an approval/question/plan/elicitation.
+ */
+export const hitlRequests = sqliteTable('hitl_requests', {
+  id: text('id').primaryKey(),
+  kind: text('kind').notNull(),
+  runId: text('run_id').notNull(),
+  sessionId: text('session_id'),
+  status: text('status').notNull().default('pending'),
+  payload: text('payload', { mode: 'json' }).notNull(),
+  reply: text('reply', { mode: 'json' }),
+  errorMessage: text('error_message'),
+  expiresAt: integer('expires_at'),
+  createdAt: text('created_at').notNull().default(sql`(datetime('now'))`),
+  resolvedAt: text('resolved_at'),
+}, (table) => [
+  index('idx_hitl_requests_run_id').on(table.runId),
+  index('idx_hitl_requests_session_id').on(table.sessionId),
+  index('idx_hitl_requests_status').on(table.status),
+]);
 
 export const runEvents = sqliteTable('run_events', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -49,6 +78,9 @@ export const toolExecutions = sqliteTable('tool_executions', {
 export const agentRuns = sqliteTable('agent_runs', {
   id: text('id').primaryKey(),
   sessionId: text('session_id'),
+  parentRunId: text('parent_run_id'),
+  agentId: text('agent_id'),
+  traceId: text('trace_id'),
   status: text('status').default('pending'),
   triggerType: text('trigger_type'),
   model: text('model'),
@@ -70,5 +102,7 @@ export const agentRuns = sqliteTable('agent_runs', {
   createdAt: text('created_at').default(sql`(datetime('now'))`),
 }, (table) => [
   index('idx_agent_runs_session_id').on(table.sessionId),
+  index('idx_agent_runs_parent_run_id').on(table.parentRunId),
+  index('idx_agent_runs_trace_id').on(table.traceId),
   index('idx_agent_runs_status').on(table.status),
 ]);

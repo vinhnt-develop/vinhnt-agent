@@ -80,23 +80,35 @@ export class FilesystemService {
     return path.resolve(this.settingsStore.getWorkspaceRoot() || '.');
   }
 
-  /**
-   * Directories the browser may traverse: the user's home, the configured
-   * workspace root, and any extra roots from AGENT_BROWSE_ROOTS
-   * (path-delimiter or comma separated). Non-directories are dropped.
-   */
-  async getRoots(): Promise<BrowseRoot[]> {
-    const extra = (process.env.AGENT_BROWSE_ROOTS ?? '')
+  /** Saved runtime setting first; env fallback keeps standalone tests working. */
+  private configuredBrowseRoots(): readonly string[] {
+    const saved = this.settingsStore.getBrowseRoots?.();
+    if (saved !== undefined) return saved;
+    return (process.env.AGENT_BROWSE_ROOTS ?? '')
       .split(path.delimiter)
       .flatMap((part) => part.split(','))
       .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) =>
-        path.isAbsolute(part) ? part : path.resolve(this.workspaceRoot(), part),
-      );
+      .filter(Boolean);
+  }
+
+  private configuredBrowseHome(): string {
+    const saved = this.settingsStore.getBrowseHome?.();
+    if (saved !== undefined) return saved.trim() || os.homedir();
+    return process.env.AGENT_BROWSE_HOME || os.homedir();
+  }
+
+  /**
+   * Directories the browser may traverse: the user's home, the configured
+   * workspace root, and any extra saved roots (env seed: AGENT_BROWSE_ROOTS).
+   * Non-directories are dropped.
+   */
+  async getRoots(): Promise<BrowseRoot[]> {
+    const extra = this.configuredBrowseRoots().map((part) =>
+      path.isAbsolute(part) ? part : path.resolve(this.workspaceRoot(), part),
+    );
 
     const candidates: Array<{ path: string; kind: BrowseRoot['kind'] }> = [
-      { path: process.env.AGENT_BROWSE_HOME || os.homedir(), kind: 'home' },
+      { path: this.configuredBrowseHome(), kind: 'home' },
       { path: this.workspaceRoot(), kind: 'workspace' },
       ...extra.map((entry) => ({ path: entry, kind: 'custom' as const })),
     ];

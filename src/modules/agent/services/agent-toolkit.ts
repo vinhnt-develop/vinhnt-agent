@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
+﻿import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject, Optional } from '@nestjs/common';
 import { AgentSettingsService } from './agent-settings.service';
 import {
   CUSTOM_TOOLS_CONFIG,
@@ -9,9 +9,10 @@ import {
   ToolRegistry,
   InMemoryFileHistory,
   FileReadTracker,
-  createReadFileTool,
+  createReadImageTool,
   createWriteFileTool,
   createEditFileTool,
+  createApplyPatchTool,
   createListDirectoryTool,
   createGlobFilesTool,
   createGrepFilesTool,
@@ -19,14 +20,13 @@ import {
   createGitStatusTool,
   createGitDiffTool,
   createGitLogTool,
+  createGitCommitTool,
   createWebFetchTool,
   createWebSearchTool,
   createTodoWriteTool,
   createQuestionTool,
-  InMemoryQuestionStore,
   createElicitTool,
   createSubmitPlanTool,
-  InMemoryPlanApprovalStore,
   createRenderUiTool,
   TavilySearchProvider,
   SerperSearchProvider,
@@ -39,14 +39,16 @@ import {
   createGetPlanTool,
   PlanStore,
 } from '@vinhnt-sdk/core';
-import {
-  InMemoryApprovalStore,
-  type ApprovalStore,
-} from '@vinhnt-sdk/permission';
+import { type ApprovalStore } from '@vinhnt-sdk/permission';
 import {
   CircuitBreaker,
   LoopDetector,
 } from '@vinhnt-sdk/guard';
+import {
+  SessionApprovalStore,
+  SessionPlanApprovalStore,
+  SessionQuestionStore,
+} from './session-hitl-stores';
 import {
   InMemoryPluginRegistry,
   definePlugin,
@@ -71,6 +73,8 @@ import {
   withElicitationDeadline,
 } from './elicit-deadline';
 import { SessionElicitationStore } from './session-elicitation-store';
+import { createPagedReadFileTool } from './paged-read-file.tool';
+import { HitlRequestRepository } from '../repositories/hitl-request.repository';
 
 /** Structural PluginManager for kernel wiring (matches @vinhnt-sdk/core PluginManager). */
 export interface PluginManagerLike {
@@ -93,11 +97,10 @@ export interface AgentToolkitConfig {
 export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AgentToolkit.name);
   private readonly toolRegistry = new ToolRegistry();
-  private readonly approvalStore: ApprovalStore = new InMemoryApprovalStore();
-  private readonly questionStore: QuestionStore = new InMemoryQuestionStore();
-  private readonly elicitationStore = new SessionElicitationStore();
-  private readonly elicitTimeoutMs = resolveElicitTimeoutMs();
-  private readonly planApprovalStore: PlanApprovalStore = new InMemoryPlanApprovalStore();
+  private readonly approvalStore: SessionApprovalStore;
+  private readonly questionStore: SessionQuestionStore;
+  private readonly elicitationStore: SessionElicitationStore;
+  private readonly planApprovalStore: SessionPlanApprovalStore;
   private readonly fileReadTracker = new FileReadTracker();
   private readonly fileHistory = new InMemoryFileHistory();
   private readonly planStore = new PlanStore();
@@ -123,9 +126,35 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     private readonly mcpServerService: McpServerService,
     @Inject(CUSTOM_TOOLS_CONFIG)
     private readonly customToolsConfig?: JsonConfigStore<CustomToolJsonConfig>,
-  ) {}
+    @Optional()
+    private readonly hitlRepository?: HitlRequestRepository,
+  ) {
+    this.approvalStore = new SessionApprovalStore(hitlRepository);
+    this.questionStore = new SessionQuestionStore(hitlRepository);
+    this.elicitationStore = new SessionElicitationStore(hitlRepository);
+    this.planApprovalStore = new SessionPlanApprovalStore(hitlRepository);
+  }
 
   async onModuleInit(): Promise<void> {
+    try {
+      const rows = this.hitlRepository?.findPendingWithResumableRuns() ?? [];
+      const keepIds = rows.map((row) => row.id);
+      const expired = this.hitlRepository?.expirePendingNotIn(keepIds) ?? 0;
+      this.approvalStore.rehydrate(rows.filter((row) => row.kind === 'approval'));
+      this.questionStore.rehydrate(rows.filter((row) => row.kind === 'question'));
+      this.planApprovalStore.rehydrate(rows.filter((row) => row.kind === 'plan'));
+      this.elicitationStore.rehydrate(
+        rows.filter((row) => row.kind === 'elicitation'),
+      );
+      if (rows.length > 0) {
+        this.logger.log(`Rehydrated ${rows.length} pending HITL request(s) from previous run`);
+      }
+      if (expired > 0) {
+        this.logger.warn(`Marked ${expired} non-resumable HITL request(s) expired after restart`);
+      }
+    } catch (error) {
+      this.logger.warn(`Failed to rehydrate pending HITL requests: ${error}`);
+    }
     try {
       this.initializeTools();
     } catch (error) {
@@ -144,7 +173,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     try {
       await this.initializeLspPool();
     } catch (error) {
-      this.logger.warn('LSP pool unavailable (optional) — skipping', error);
+      this.logger.warn('LSP pool unavailable (optional) â€” skipping', error);
     }
   }
 
@@ -186,9 +215,13 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
       metadata: { ...tool.metadata, source: 'system' },
     });
 
-    this.toolRegistry.register(asSystem(createReadFileTool(root, this.fileReadTracker)));
+    this.toolRegistry.register(asSystem(createPagedReadFileTool(root, this.fileReadTracker)));
+    // Image attachments are not inlined (see AttachmentService); the model can
+    // inspect them through read_image, which validates extension + magic bytes.
+    this.toolRegistry.register(asSystem(createReadImageTool(root)));
     this.toolRegistry.register(asSystem(createWriteFileTool(root, this.fileReadTracker)));
     this.toolRegistry.register(asSystem(createEditFileTool(root, this.fileReadTracker)));
+    this.toolRegistry.register(asSystem(createApplyPatchTool(root, this.fileReadTracker)));
     this.toolRegistry.register(asSystem(createListDirectoryTool(root)));
     this.toolRegistry.register(asSystem(createGlobFilesTool(root)));
     this.toolRegistry.register(asSystem(createGrepFilesTool(root)));
@@ -200,6 +233,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     this.toolRegistry.register(asSystem(createGitStatusTool(root)));
     this.toolRegistry.register(asSystem(createGitDiffTool(root)));
     this.toolRegistry.register(asSystem(createGitLogTool(root)));
+    this.toolRegistry.register(asSystem(createGitCommitTool(root)));
 
     // P4.1: SDK capability tools. web_fetch/todowrite are keyless;
     // web_search needs a search-provider key (env-injected, no hardcoding).
@@ -213,7 +247,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     // The deadline wrapper stamps `expiresAt` on the emitted request.
     this.toolRegistry.register(
       asSystem(
-        withElicitationDeadline(createElicitTool(), this.elicitTimeoutMs),
+        withElicitationDeadline(createElicitTool(), () => this.getElicitTimeoutMs()),
       ),
     );
     // Plan approval (HITL): the tool defers to `ctx.askPlan`, which the kernel
@@ -221,7 +255,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     this.toolRegistry.register(asSystem(createSubmitPlanTool()));
     this.toolRegistry.register(asSystem(createRenderUiTool()));
     // Plan tracking: update_plan writes / get_plan reads one shared store
-    // (per-toolkit instance — concurrent agents must not share a plan).
+    // (per-toolkit instance â€” concurrent agents must not share a plan).
     this.toolRegistry.register(asSystem(createUpdatePlanTool(this.planStore)));
     this.toolRegistry.register(asSystem(createGetPlanTool(this.planStore)));
     const searchProvider = process.env.SERPER_API_KEY
@@ -235,7 +269,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
       );
     } else {
       this.logger.log(
-        'web_search not registered — set TAVILY_API_KEY or SERPER_API_KEY to enable',
+        'web_search not registered â€” set TAVILY_API_KEY or SERPER_API_KEY to enable',
       );
     }
 
@@ -257,6 +291,10 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
             args: Array.isArray(server.args) ? server.args : undefined,
             url: server.url ?? undefined,
             env: server.env as Record<string, string> | undefined,
+            headers:
+              (server.headers as Record<string, string> | undefined) ?? undefined,
+            timeoutMs: server.timeoutMs ?? undefined,
+            governance: server.governance ?? undefined,
           };
           await this.connectMcpServer(config);
         } catch (error) {
@@ -370,7 +408,10 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
 
   /** Configured elicitation deadline (ms) shared by the tool and kernel. */
   getElicitTimeoutMs(): number {
-    return this.elicitTimeoutMs;
+    const configured = this.settingsService.getSettings().elicitTimeoutMs;
+    return typeof configured === 'number' && Number.isFinite(configured)
+      ? configured
+      : resolveElicitTimeoutMs();
   }
 
   getPlanApprovalStore(): PlanApprovalStore {
@@ -378,12 +419,12 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * P0.5: Settings → Resilience (maxRetries/backoffMs/maxBackoffMs) must reach
+   * P0.5: Settings â†’ Resilience (maxRetries/backoffMs/maxBackoffMs) must reach
    * the LIVE breaker. The kernel prefers an injected instance over building its
    * own from config (`circuitBreaker ?? new CircuitBreaker(...)` in kernel.ts),
    * so a hardcoded singleton silently made those three fields dead UI. The
    * kernel cache already evicts on a settings-hash change (getSettingsHash
-   * includes them), so the next run rebuilds the kernel and lands here — sync
+   * includes them), so the next run rebuilds the kernel and lands here â€” sync
    * the breaker against the saved settings before handing it over.
    */
   getCircuitBreaker(): CircuitBreaker {
@@ -437,7 +478,7 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     return this.pluginRegistry;
   }
 
-  /** Real PluginManager for kernel wiring (fireHook → registered plugins). */
+  /** Real PluginManager for kernel wiring (fireHook â†’ registered plugins). */
   setPluginManager(pm: PluginManagerLike | undefined): void {
     this.pluginManager = pm;
   }
@@ -462,7 +503,9 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     try {
       const connection = await this.mcpClient.connect(config);
       this.mcpConnections.set(config.name, connection);
-      const tools = await discoverMcpTools(config.name, connection);
+      const tools = await discoverMcpTools(config.name, connection, {
+        governance: config.governance,
+      });
       tools.forEach((tool) => this.toolRegistry.register(tool));
       this.logger.log(
         `MCP server connected: ${config.name}, ${tools.length} tools registered`,
@@ -474,6 +517,12 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
   }
 
   async disconnectMcpServer(name: string): Promise<void> {
+    const prefix = `mcp__${name}__`;
+    for (const tool of this.toolRegistry.list()) {
+      if (tool.id.startsWith(prefix)) {
+        this.toolRegistry.unregister(tool.id);
+      }
+    }
     const connection = this.mcpConnections.get(name);
     if (connection) {
       await connection.close();
@@ -562,3 +611,4 @@ export class AgentToolkit implements OnModuleInit, OnModuleDestroy {
     this.logger.log('AgentToolkit shut down');
   }
 }
+

@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+﻿import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AgentKernelConfig } from '@vinhnt-sdk/core';
 import {
@@ -14,7 +14,7 @@ import {
   createToolContextSource,
   createCustomSource,
   InMemoryModelRegistry,
-  // P7.1: unified ContextBudget — derive full budget from settings, feed both
+  // P7.1: unified ContextBudget â€” derive full budget from settings, feed both
   // kernelConfig.contextBudget and the compressor (single source).
   deriveContextBudget,
   budgetToCompressorFields,
@@ -27,11 +27,11 @@ import {
   createSkillGuidanceSource,
   createSpawnAgentTool,
   createDelegateTool,
+  createDelegateBatchTool,
   createCreateAgentTool,
   createListAgentsTool,
   createHandoffTool,
 } from '@vinhnt-sdk/core';
-import { ToolProviderRegistry } from '@vinhnt-sdk/tools';
 import type { AgentId, ModelProvider } from '@vinhnt-sdk/schema';
 import type { PermissionMode } from '@/shared/permission-mode';
 import type {
@@ -52,15 +52,20 @@ import {
 } from '@/infrastructure/model/provider-factory';
 import { AgentToolkit } from './agent-toolkit';
 import { AgentRunTrackingService } from './agent-run-tracking.service';
-import { AgentKnowledgeService } from '@/modules/knowledge/services/agent-knowledge.service';
+import { AttachmentService } from './attachment.service';
+import {
+  prepareUserContentParts,
+  type ImageAttachmentInput,
+} from './image-attachment.service';
+import { AgentKnowledgeService, type MemoryOwnerScope } from '@/modules/knowledge/services/agent-knowledge.service';
 import { extractActualErrorMessage } from '@/shared/error-utils';
-import { resolveSystemToolIds, withSystemTools } from '@/shared/tool-selection';
+import { collectHandoffToolIds, KERNEL_ONLY_SYSTEM_TOOL_IDS, resolveSystemToolIds, withSystemTools } from '@/shared/tool-selection';
 import { KernelSettings, AgentSettingsService } from './agent-settings.service';
 
 /**
  * Minimal PluginManager that fires hooks from the toolkit's plugin registry.
  * Replaces the previous no-op stub so kernel/step-executor hooks actually run.
- * Structural types only — dual @vinhnt-sdk/core versions in the tree make
+ * Structural types only â€” dual @vinhnt-sdk/core versions in the tree make
  * nominal Plugin typing unreliable here.
  */
 class ToolkitPluginManager {
@@ -114,6 +119,10 @@ class ToolkitPluginManager {
 export interface RunAgentInput {
   sessionId: string;
   prompt: string;
+  /** Authenticated caller (api JWT `id`); scopes learned memory per user. */
+  actorId?: string;
+  /** App/tenant ID for cross-user memory isolation (optional). */
+  appId?: string;
   model?: string;
   provider?: string;
   settings?: Partial<KernelSettings>;
@@ -124,6 +133,10 @@ export interface RunAgentInput {
     tools?: Array<{ id: string; name?: string; enabled?: boolean }>;
     knowledge?: Array<{ id: string; key?: string; enabled?: boolean }>;
   };
+  /** Project-relative file paths attached by the composer. */
+  attachments?: string[];
+  /** Pasted images delivered as multimodal user content parts. */
+  images?: ImageAttachmentInput[];
 }
 
 /** Input for resuming a crashed/interrupted run (P4.2). */
@@ -137,6 +150,10 @@ export interface ResumeRunInput {
   projectPath?: string;
   permissionMode?: PermissionMode;
   selection?: RunAgentInput['selection'];
+  /** Authenticated caller; falls back to the run owner's scope. */
+  actorId?: string;
+  /** App/tenant ID for cross-user memory isolation (optional). */
+  appId?: string;
 }
 
 export interface RunAgentResult {
@@ -178,13 +195,17 @@ export class AgentService implements OnModuleInit {
     { kernel: any; sessionState?: InMemorySessionState; lastAccess: number }
   >();
   /** Active run handles keyed by runId for run-specific cancellation.
-   *  `isCancelled` is a getter on the kernel handle — assignment throws. */
+   *  `isCancelled` is a getter on the kernel handle â€” assignment throws. */
   private activeHandles = new Map<string, { cancel: () => void; readonly isCancelled: boolean }>();
-  /** Live kernel per runId — lets us steer a running run via kernel.sendInput. */
+  /** Live kernel per runId â€” lets us steer a running run via kernel.sendInput. */
   private activeKernels = new Map<string, any>();
+  /** Recently finished kernels retained so file-snapshot undo survives the run. */
+  private runKernels = new Map<string, any>();
   /** P4.5: per-session knowledge-id filter from the composer selection.
    *  Absent/empty = include all knowledge entries (previous behaviour). */
   private readonly knowledgeFilterBySession = new Map<string, string[]>();
+  /** Owner scope captured at run start, reused by resume/HITL paths. */
+  private readonly memoryScopeByRun = new Map<string, MemoryOwnerScope>();
   private readonly eventBus = new InMemoryEventBus();
   private readonly agentRegistry = new InMemoryAgentRegistry();
   private readonly pluginManager: ToolkitPluginManager;
@@ -199,6 +220,7 @@ export class AgentService implements OnModuleInit {
     private readonly trackingService: AgentRunTrackingService,
     private readonly knowledgeService: AgentKnowledgeService,
     private readonly settingsService: AgentSettingsService,
+    private readonly attachmentService: AttachmentService = new AttachmentService(),
   ) {
     this.pluginManager = new ToolkitPluginManager({
       list: () =>
@@ -226,7 +248,7 @@ export class AgentService implements OnModuleInit {
       const orphaned = this.trackingService.findRunningRuns();
       if (orphaned.length > 0) {
         this.logger.warn(
-          `Boot: ${orphaned.length} run(s) still marked 'running' in DB (likely interrupted by restart) — resumable via POST /agent/resume: ${orphaned.map((r) => r.id).join(', ')}`,
+          `Boot: ${orphaned.length} run(s) still marked 'running' in DB (likely interrupted by restart) â€” resumable via POST /agent/resume: ${orphaned.map((r) => r.id).join(', ')}`,
         );
       }
     } catch (error) {
@@ -243,11 +265,11 @@ export class AgentService implements OnModuleInit {
   }
 
   private evictOldestKernel(): void {
-    // SC3: capacity is a live settings read — UI/JSON edits apply to the next
+    // SC3: capacity is a live settings read â€” UI/JSON edits apply to the next
     // evict without a restart (was ctor-cached from env).
     const maxKernelCacheSize = this.settingsService.getSettings().maxKernelCacheSize;
     // P13: evict when the cache is at/over capacity BEFORE inserting the new
-    // kernel (call site is pre-insert) — the old `<=` let the map grow to
+    // kernel (call site is pre-insert) â€” the old `<=` let the map grow to
     // max+1 and only trimmed on the next request.
     if (this.kernels.size < maxKernelCacheSize) return;
     let oldestKey: string | null = null;
@@ -261,7 +283,7 @@ export class AgentService implements OnModuleInit {
     if (oldestKey) this.kernels.delete(oldestKey);
   }
 
-  private getSettingsHash(settings?: Partial<KernelSettings>): string {
+private getSettingsHash(settings?: Partial<KernelSettings>): string {
     if (!settings) return '';
     // Every field that affects ModelCaller / system prompt / kernel behavior.
     // Missing a field here reuses a stale kernel and lies about the request.
@@ -294,27 +316,62 @@ export class AgentService implements OnModuleInit {
       // reuse a stale kernel (approvalTimeout/rules took effect only after
       // restart before this).
       approvalTimeoutMs: settings.approvalTimeoutMs,
+      // stepTimeout is derived from the elicit deadline at kernel creation.
+      elicitTimeoutMs: settings.elicitTimeoutMs,
       globalPermissionRules: settings.globalPermissionRules,
       permissionRiskDefaults: settings.permissionRiskDefaults,
+      // Guardrails (P1.3) - changing these must create a new kernel
+      inputGuardrailMaxLength: settings.inputGuardrailMaxLength,
+      guardrailBlocklist: settings.guardrailBlocklist,
+      secretRedaction: settings.secretRedaction,
     };
     return JSON.stringify(relevant);
   }
 
-  /** 'ask' | 'edit' | 'full' — the approval mode resolved for a kernel instance. */
+  /** 'ask' | 'edit' | 'full' â€” the approval mode resolved for a kernel instance. */
   private resolvePermissionMode(
     settings?: Partial<KernelSettings>,
     override?: PermissionMode,
   ): PermissionMode {
-    // L2 (SC1 decision): AGENT_AUTO_APPROVAL=false is an ops kill switch —
+    // L2 (SC1 decision): AGENT_AUTO_APPROVAL=false is an ops kill switch â€”
     // checked FIRST, before any settings/UI value, so the API cannot bypass it.
     const envAutoApproval = this.configService.get<boolean>('agent.autoApproval', true);
     if (envAutoApproval === false) return 'ask';
-    // L1: settings.autoApproval (JSON/Settings UI toggle) — false → always ask.
+    // L1: settings.autoApproval (JSON/Settings UI toggle) â€” false â†’ always ask.
     const autoApproval =
       settings?.autoApproval ?? this.settingsService.getSettings().autoApproval;
     if (autoApproval === false) return 'ask';
     // Per-run composer choice > saved kernel settings > ask (opt-in via UI).
     return override ?? settings?.permissionMode ?? 'ask';
+  }
+
+  /**
+   * SDK steering inputs are persisted with `admittedSeq` and promoted when the
+   * run loop drains them. If a run ends before that update lands, the input
+   * stays "pending" and the next run re-delivers it via hydratePendingInputs â€”
+   * after the fresh prompt. An old "Ä‘á»•i hÆ°á»›ng" steer can then override the
+   * user's newest message. At the start of a NEW run (no live run is allowed
+   * for the session), such leftovers are stale: promote them so
+   * loadSessionHistory includes them in chronological order instead.
+   */
+  private async promoteStaleSteeringInputs(sessionId: string): Promise<void> {
+    try {
+      const messages = await this.sessionStore.listMessages(sessionId);
+      for (const message of messages) {
+        if (
+          typeof message.admittedSeq === 'number' &&
+          (message.promotedSeq === undefined || message.promotedSeq < message.admittedSeq)
+        ) {
+          await this.sessionStore.updateMessage(sessionId, message.id, {
+            promotedSeq: message.admittedSeq,
+          });
+        }
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to promote stale steering inputs for session ${sessionId}: ${extractActualErrorMessage(error)}`,
+      );
+    }
   }
 
   /**
@@ -329,11 +386,12 @@ export class AgentService implements OnModuleInit {
     historyLimit?: number,
   ): Promise<void> {
     try {
+      await this.promoteStaleSteeringInputs(sessionId);
       let history = await loadSessionHistory(this.sessionStore, sessionId);
-      // P4.1 historyLimit — keep only the most recent N messages for this turn
+      // P4.1 historyLimit â€” keep only the most recent N messages for this turn
       // (nothing is deleted from the store). session@0.4.6 accepts
       // loadSessionHistory(store, id, { limit }); until the app upgrades past
-      // the published 0.4.5, trim here — the transcript is already
+      // the published 0.4.5, trim here â€” the transcript is already
       // pair-repaired, so the only breakage a tail cut can cause is orphaned
       // tool rows at the window head (their declaration fell outside), which
       // we drop.
@@ -348,7 +406,7 @@ export class AgentService implements OnModuleInit {
       sessionState.toolCallCount = 0;
       sessionState.isRunning = false;
     } catch (error) {
-      // Degrade to whatever state is already in memory — never block the run.
+      // Degrade to whatever state is already in memory â€” never block the run.
       this.logger.error(
         `Failed to hydrate history for session ${sessionId}: ${extractActualErrorMessage(error)}`,
       );
@@ -362,6 +420,7 @@ export class AgentService implements OnModuleInit {
     permissionModeOverride?: PermissionMode,
     sessionId?: string,
     projectPath?: string,
+    memoryScope?: MemoryOwnerScope,
   ): Promise<any> {
     const permissionMode = this.resolvePermissionMode(settings, permissionModeOverride);
     const cacheKey = this.getKernelCacheKey(providerName, modelId);
@@ -372,7 +431,7 @@ export class AgentService implements OnModuleInit {
     // history between them. The settings-eviction prefix below still matches.
     const sessionSegment = sessionId ? `|sid:${sessionId}` : '';
     // P0-6: instructions/workspace context sources and kernelConfig.workspaceRoot
-    // are BOUND at construction — a kernel built for one project root must not
+    // are BOUND at construction â€” a kernel built for one project root must not
     // be reused for another (system prompt cwd would disagree with tool cwd).
     // SC3: workspaceRoot resolves settings-first (per-run > saved JSON > literal).
     const root =
@@ -380,7 +439,14 @@ export class AgentService implements OnModuleInit {
       settings?.workspaceRoot ??
       this.settingsService.getSettings().workspaceRoot;
     const rootSegment = `|root:${root}`;
-    const fullCacheKey = settingsHash ? `${cacheKey}${sessionSegment}${rootSegment}|${settingsHash}${permissionKey}` : `${cacheKey}${sessionSegment}${rootSegment}${permissionKey}`;
+    // Memory scope is bound at construction (system prompt memory source), so
+    // two users must never share a kernel even if they hit the same session id.
+    const ownerSegment = memoryScope?.userId
+      ? `|uid:${memoryScope.userId}`
+      : memoryScope?.appId
+        ? `|aid:${memoryScope.appId}`
+        : '';
+    const fullCacheKey = settingsHash ? `${cacheKey}${sessionSegment}${rootSegment}${ownerSegment}|${settingsHash}${permissionKey}` : `${cacheKey}${sessionSegment}${rootSegment}${ownerSegment}${permissionKey}`;
 
     const cached = this.kernels.get(fullCacheKey);
     if (cached) {
@@ -407,7 +473,7 @@ export class AgentService implements OnModuleInit {
       await this.agentToolkit.loadCustomToolsFromStore().catch(() => undefined);
       const tools = this.agentToolkit.getToolsAsDefinitions() as ToolDefinitionLike[];
 
-      // Register memory search tool — included in pool; memory_search is a
+      // Register memory search tool â€” included in pool; memory_search is a
       // system tool and is force-included in every run selection whitelist
       // (withSystemTools), so it can never be filtered out.
       const memorySearchTool = createMemorySearchTool(this.sessionStore as any);
@@ -434,7 +500,7 @@ export class AgentService implements OnModuleInit {
       );
 
       // Register code-reviewer sub-agent + handoff tool (P4.4: the roster is
-      // only reachable when a handoff/delegate tool exists — previously the
+      // only reachable when a handoff/delegate tool exists â€” previously the
       // registry was a dead end).
       const codeReviewer = createAgent({
         id: 'code-reviewer' as AgentId,
@@ -457,7 +523,7 @@ export class AgentService implements OnModuleInit {
 
       const provider = await this.providerFactory.getModelProvider(providerName);
 
-      // P4.4 contextLimit — settings override (0 = provider/SDK default).
+      // P4.4 contextLimit â€” settings override (0 = provider/SDK default).
       // Wrap (not mutate) the cached provider so the shared cache stays clean.
       const contextLimit = settings?.contextLimit ?? 0;
       const effectiveProvider: ModelProvider =
@@ -465,14 +531,14 @@ export class AgentService implements OnModuleInit {
           ? (Object.assign(Object.create(provider), { contextLimit }) as ModelProvider)
           : provider;
 
-      // P4.4 failoverModels — build a model registry ONLY when configured, so
+      // P4.4 failoverModels â€” build a model registry ONLY when configured, so
       // the default path (no registry) behaves exactly as before.
       const failoverModels = (settings?.failoverModels ?? []).filter(Boolean);
       let modelRegistry: InMemoryModelRegistry | undefined;
       let modelRouting: { failoverModels: string[] } | undefined;
       if (failoverModels.length > 0) {
         modelRegistry = new InMemoryModelRegistry();
-        // Seed the PRIMARY model first — getByProvider falls back to the first
+        // Seed the PRIMARY model first â€” getByProvider falls back to the first
         // registered entry, so primary-first prevents a failover id from being
         // silently selected as the primary by a composer override miss.
         modelRegistry.register(effectiveProvider.model, effectiveProvider);
@@ -487,7 +553,7 @@ export class AgentService implements OnModuleInit {
             }
           }
         } else {
-          this.logger.warn('failoverModels configured but provider config unavailable — failover disabled');
+          this.logger.warn('failoverModels configured but provider config unavailable â€” failover disabled');
           modelRegistry = undefined;
         }
         if (modelRegistry) {
@@ -496,20 +562,20 @@ export class AgentService implements OnModuleInit {
       }
 
       // P0-6: bind context sources to the session's project root (falls back
-      // to the global workspaceRoot) — NOT always the global config value.
+      // to the global workspaceRoot) â€” NOT always the global config value.
       const workspaceRoot = root;
 
-      // Per-session runtime state — fed into the kernel so the run loop joins
+      // Per-session runtime state â€” fed into the kernel so the run loop joins
       // prior-turn history (P0-1). Hydrated from the DB transcript below.
       const sessionState = new InMemorySessionState();
       if (sessionId) {
         await this.hydrateSessionState(sessionState, sessionId, settings?.historyLimit);
       }
 
-      // P7.1: unified ContextBudget — computed once, fed to kernelConfig
+      // P7.1: unified ContextBudget â€” computed once, fed to kernelConfig
       // (normalized + frozen by kernel) and the compressor (tokenBudget =
-      // maxContextTokens × compactionThreshold, aligning its internal trigger
-      // with the run-loop's window×ratio).
+      // maxContextTokens Ã— compactionThreshold, aligning its internal trigger
+      // with the run-loop's windowÃ—ratio).
       const contextBudget = deriveContextBudget({
         ...(settings?.maxContextTokens && settings.maxContextTokens > 0
           ? { maxContextTokens: settings.maxContextTokens }
@@ -526,7 +592,7 @@ export class AgentService implements OnModuleInit {
         eventBus: this.eventBus,
         tools: allTools.length > 0 ? (allTools as any) : undefined,
 
-        // Model settings (nested pattern — aligned with SDK v0.7.0)
+        // Model settings (nested pattern â€” aligned with SDK v0.7.0)
         modelSettings: {
           temperature: settings?.temperature ?? 0.7,
           topP: settings?.topP ?? 1.0,
@@ -536,7 +602,7 @@ export class AgentService implements OnModuleInit {
           ...(settings?.presencePenalty !== undefined ? { presencePenalty: settings.presencePenalty } : {}),
         },
 
-        // Limits (env is seeded into AgentSettingsService defaults — P4.6;
+        // Limits (env is seeded into AgentSettingsService defaults â€” P4.6;
         // the configService legs here were dead: settings always full).
         maxSteps: settings?.maxSteps ?? 30,
         maxTokens: settings?.maxTokens ?? 4096,
@@ -567,14 +633,14 @@ export class AgentService implements OnModuleInit {
         // silent 0.75 literal)
         compactionThreshold:
           settings?.compactionThreshold ?? this.settingsService.getSettings().compactionThreshold,
-        // P7.1: unified ContextBudget — single source for kernel normalization
+        // P7.1: unified ContextBudget â€” single source for kernel normalization
         // + compressor (computed once above). maxContextTokens seeds the
-        // budget window; 0/undefined → SDK default 128_000. Other budget
+        // budget window; 0/undefined â†’ SDK default 128_000. Other budget
         // fields (sanitizeLimitChars, maxToolOutputChars, maxSubagentOutputChars)
         // keep SDK defaults until per-field settings are added.
         contextBudget: contextBudget,
-        // P7.1: compressor tokenBudget = maxContextTokens × compactionThreshold
-        // (aligns its internal trigger with the run-loop's window×ratio).
+        // P7.1: compressor tokenBudget = maxContextTokens Ã— compactionThreshold
+        // (aligns its internal trigger with the run-loop's windowÃ—ratio).
         compactor: new ContextCompressor(budgetToCompressorFields(contextBudget)),
 
         // Sub-agents
@@ -583,7 +649,10 @@ export class AgentService implements OnModuleInit {
         // Workspace
         workspaceRoot,
 
-        // Guardrails — settings-driven (P3.2)
+        // G7.2: pre-image mutating file tools so a run can be undone.
+        fileSnapshot: { maxSnapshots: 500, workspaceRoot },
+
+        // Guardrails â€” settings-driven (P3.2)
         ...(() => {
           const built = buildKernelGuardrails(settings ?? {});
           if (built.invalidPatterns.length > 0) {
@@ -594,14 +663,14 @@ export class AgentService implements OnModuleInit {
           return built.config;
         })(),
 
-        // Permissions (SC3: live from settings — env is only their seed)
+        // Permissions (SC3: live from settings â€” env is only their seed)
         permissions: {
           approvalStore: this.agentToolkit.getApprovalStore(),
           autoApprovalEnabled: permissionMode !== 'ask',
           approvalTimeoutMs:
             settings?.approvalTimeoutMs ?? this.settingsService.getSettings().approvalTimeoutMs,
           globalPermissionRules: {
-            // The HITL `question`/`submit_plan` tools are never privileged —
+            // The HITL `question`/`submit_plan` tools are never privileged â€”
             // asking the user is not a side-effecting action, so allow them in
             // every mode. Explicit user rules still win (spread last).
             question: 'allow',
@@ -612,7 +681,7 @@ export class AgentService implements OnModuleInit {
           },
           // A global `allow` is soft (risk defaults can still gate it), so the
           // question/submit_plan tools additionally get a decisive top-level
-          // allow — they must never require a permission prompt before the
+          // allow â€” they must never require a permission prompt before the
           // agent can ask. A global `deny`/`ask` (above) still takes precedence.
           topLevelPermissionRules: {
             allow: ['question', 'elicit', 'submit_plan'],
@@ -624,7 +693,7 @@ export class AgentService implements OnModuleInit {
               ? {
                   ...(settings?.permissionRiskDefaults ??
                     this.settingsService.getSettings().permissionRiskDefaults),
-                  // "Full access" label means what it says — lift the destructive
+                  // "Full access" label means what it says â€” lift the destructive
                   // floor (still subject to the AGENT_AUTO_APPROVAL kill switch).
                   destructive: 'allow',
                 }
@@ -662,22 +731,22 @@ export class AgentService implements OnModuleInit {
           mode: settings?.sandboxMode ?? 'host',
         },
 
-        // P4.4 sessionTitleGenerator — generates a real title from the first
+        // P4.4 sessionTitleGenerator â€” generates a real title from the first
         // prompt (SDK guard replaces empty/"New Session" titles after a
         // successful run; the generator costs ~30 tokens once per session).
         sessionTitleGenerator: createDefaultSessionTitleGenerator(effectiveProvider),
 
-        // P4.4 failoverModels — only wired when configured (see above).
+        // P4.4 failoverModels â€” only wired when configured (see above).
         ...(modelRegistry ? { modelRegistry, modelRouting } : {}),
 
-        // Plugins — real manager (fireHook wired to registered plugins)
+        // Plugins â€” real manager (fireHook wired to registered plugins)
         pluginManager: this.pluginManager as never,
 
-        // System context — layered composition from SDK
+        // System context â€” layered composition from SDK
         systemContext: (() => {
           const registry = createContextRegistry();
 
-          // Priority 0: System prompt — user custom OR SDK default
+          // Priority 0: System prompt â€” user custom OR SDK default
           const customPrompt = settings?.systemPrompt;
           if (customPrompt) {
             // User-provided system prompt overrides SDK default
@@ -691,7 +760,7 @@ export class AgentService implements OnModuleInit {
             registry.register(createSystemPromptSource(() => modelId));
           }
 
-          // Priority 5: Tool index — names only (descriptions/schemas ride tools[] API)
+          // Priority 5: Tool index â€” names only (descriptions/schemas ride tools[] API)
           registry.register(createToolContextSource(() =>
             allTools.map((t: any) => ({
               name: t.name ?? t.id,
@@ -712,14 +781,14 @@ export class AgentService implements OnModuleInit {
           // Priority 40: Workspace info (cwd, OS, arch, etc.)
           registry.register(createWorkspaceSource(workspaceRoot));
 
-          // Priority 45: Memory — session/working tiers + knowledge base (P3.4)
+          // Priority 45: Memory â€” session/working tiers + knowledge base (P3.4)
           if (sessionId) {
             registry.register(
-              createMemorySource(() => this.knowledgeService.buildMemoryBlock(sessionId, this.knowledgeFilterBySession.get(sessionId))),
+              createMemorySource(() => this.knowledgeService.buildMemoryBlock(sessionId, this.knowledgeFilterBySession.get(sessionId), memoryScope)),
             );
           }
 
-          // Priority 50: Skill index (P4.4) — <available_skills> in system prompt
+          // Priority 50: Skill index (P4.4) â€” <available_skills> in system prompt
           // so the LLM knows which skill names exist without calling skill_search.
           registry.register(createSkillGuidanceSource(() => [...skillRegistry.list()]));
 
@@ -729,7 +798,7 @@ export class AgentService implements OnModuleInit {
 
       const kernel = new AgentKernel(kernelConfig);
 
-      // P4.4: register sub-agent capability tools AFTER kernel creation —
+      // P4.4: register sub-agent capability tools AFTER kernel creation â€”
       // spawn/delegate/create/list need the live kernel instance. These give
       // the LLM a path to the agentRegistry roster (previously a dead end:
       // code-reviewer was registered but unreachable). Opt-in per SDK design
@@ -737,6 +806,7 @@ export class AgentService implements OnModuleInit {
       try {
         kernel.registerTool(createSpawnAgentTool(kernel) as any);
         kernel.registerTool(createDelegateTool(kernel) as any);
+        kernel.registerTool(createDelegateBatchTool(kernel) as any);
         kernel.registerTool(createCreateAgentTool(kernel) as any);
         kernel.registerTool(createListAgentsTool(kernel) as any);
       } catch (err) {
@@ -752,9 +822,16 @@ export class AgentService implements OnModuleInit {
     }
   }
 
-  private buildRequestContext(provider?: string, model?: string, workspaceRoot?: string, selection?: RunAgentInput['selection']) {
+  private async buildRequestContext(
+    provider?: string,
+    model?: string,
+    workspaceRoot?: string,
+    selection?: RunAgentInput['selection'],
+    actorId?: string,
+  ) {
     // System tools are always active: force them into the selection whitelist
     // so the kernel filter can never drop them (see withSystemTools).
+    const roster = await this.agentRegistry.list().catch(() => []);
     const resolvedSelection = withSystemTools(
       selection,
       resolveSystemToolIds(
@@ -763,12 +840,16 @@ export class AgentService implements OnModuleInit {
           name?: string;
           metadata?: { source?: string };
         }>,
+        [
+          ...KERNEL_ONLY_SYSTEM_TOOL_IDS,
+          ...collectHandoffToolIds(roster.map((agent) => agent.id)),
+        ],
       ),
     );
     return {
       requestId: crypto.randomUUID() as RequestId,
       traceId: crypto.randomUUID() as TraceId,
-      actorId: 'local-user',
+      actorId: actorId ?? 'local-user',
       tenantId: 'local',
       overrides: {
         ...(provider ? { provider } : {}),
@@ -779,8 +860,32 @@ export class AgentService implements OnModuleInit {
     };
   }
 
+  /**
+   * Learned facts belong to the authenticated user (cross-session), never to
+   * the process. Unauthenticated/test callers keep the legacy local identity.
+   * appId enables app/tenant-scoped memory isolation.
+   */
+  private memoryScopeFor(scope?: { userId?: string; appId?: string }): MemoryOwnerScope {
+    return {
+      userId: scope?.userId?.length ? scope.userId : 'local-user',
+      appId: scope?.appId?.length ? scope.appId : undefined,
+    };
+  }
+
+  private attachmentRoot(
+    projectPath?: string,
+    settings?: Partial<KernelSettings>,
+  ): string {
+    return (
+      projectPath ??
+      settings?.workspaceRoot ??
+      this.settingsService.getSettings().workspaceRoot
+    );
+  }
+
   async runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const { sessionId, prompt, model, provider, settings, projectPath } = input;
+    const memoryScope = this.memoryScopeFor({ userId: input.actorId, appId: input.appId });
     this.logger.log(`Running agent for session ${sessionId}, model=${model}, provider=${provider}`);
 
     if (!sessionId) {
@@ -788,7 +893,7 @@ export class AgentService implements OnModuleInit {
       return { runId: '', status: 'failed', output: 'Session ID is required', totalSteps: 0 };
     }
 
-    // One live run per session — rejects double-starts (e.g. duplicate send
+    // One live run per session â€” rejects double-starts (e.g. duplicate send
     // via silent HTTP fallback while a WS run is already going).
     const activeRun = this.trackingService.findActiveRunForSession(sessionId);
     if (activeRun) {
@@ -804,15 +909,15 @@ export class AgentService implements OnModuleInit {
 
     const runStartedAt = Date.now();
     // Permission mode: per-run composer choice > saved kernel settings >
-    // AGENT_AUTO_APPROVAL — resolved inside getKernel.
-      const kernel = await this.getKernel(model, provider, settings, input.permissionMode, sessionId, projectPath);
-    const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
+    // AGENT_AUTO_APPROVAL â€” resolved inside getKernel.
+      const kernel = await this.getKernel(model, provider, settings, input.permissionMode, sessionId, projectPath, memoryScope);
+    const ctx = await this.buildRequestContext(provider, model, projectPath, input.selection, memoryScope.userId);
 
-    // Fallback: no projectPath → workspaceRoot with explicit warn (not silent monorepo root).
+    // Fallback: no projectPath â†’ workspaceRoot with explicit warn (not silent monorepo root).
     if (!projectPath) {
       const ws = settings?.workspaceRoot ?? this.settingsService.getSettings().workspaceRoot;
       this.logger.warn(
-        `No projectPath for session ${sessionId} — falling back to workspaceRoot=${ws}`,
+        `No projectPath for session ${sessionId} â€” falling back to workspaceRoot=${ws}`,
       );
       if (ctx.overrides && !ctx.overrides.workspaceRoot) {
         (ctx.overrides as Record<string, unknown>).workspaceRoot = ws;
@@ -828,9 +933,27 @@ export class AgentService implements OnModuleInit {
       this.knowledgeFilterBySession.delete(sessionId);
     }
 
+    const preparedAttachments = await this.attachmentService.prepareInput(
+      prompt,
+      input.attachments,
+      this.attachmentRoot(projectPath, settings),
+    );
+    const finalPrompt = preparedAttachments.prompt;
+
+    const userContentParts = prepareUserContentParts(finalPrompt, [
+      ...(input.images ?? []),
+      ...preparedAttachments.images,
+    ]);
+
     // runId MUST equal handle.runId so agent_runs joins run_events in trajectory.
-    const handle = kernel.createRunHandle(prompt, ctx, sessionId);
+    const handle = kernel.createRunHandle(
+      finalPrompt,
+      ctx,
+      sessionId,
+      userContentParts,
+    );
     const runId = handle.runId as string;
+    this.memoryScopeByRun?.set(runId, memoryScope);
 
     this.trackingService.startRun({
       runId,
@@ -840,34 +963,21 @@ export class AgentService implements OnModuleInit {
       triggerType: 'http',
     });
 
-    // Register the handle so HTTP-path runs are cancellable too — previously
+    // Register the handle so HTTP-path runs are cancellable too â€” previously
     // only the WS path registered handles, leaving POST /agent/run runs
     // unstoppable (LM Studio kept generating after cancel).
     this.activeHandles.set(runId, handle);
-    this.activeKernels.set(runId, kernel);
-    handle.completed.then(
-      () => {
-        this.forgetRun(runId);
-        this.knowledgeFilterBySession.delete(sessionId);
-      },
-      () => {
-        this.forgetRun(runId);
-        this.knowledgeFilterBySession.delete(sessionId);
-      },
-    ).catch(() => {
-      this.forgetRun(runId);
-      this.knowledgeFilterBySession.delete(sessionId);
-    });
+    this.trackRunKernel(runId, kernel);
 
     try {
       // Tool executions are tracked by AgentGateway's eventBus subscription
-      // (handle.events() only yields agent.started/completed/error — tool.*
+      // (handle.events() only yields agent.started/completed/error â€” tool.*
       // flows through the EventBus, so draining here would never see them).
       const result = await handle.completed;
 
       const durationMs = Date.now() - runStartedAt;
 
-      // Cancelled runs must return early with a terminal 'cancelled' status —
+      // Cancelled runs must return early with a terminal 'cancelled' status â€”
       // falling through would record a bogus 'succeeded' over the cancel.
       if (result.status === 'cancelled' || (result as { cancelled?: boolean }).cancelled === true) {
         this.logger.log(`Agent run cancelled for session ${sessionId}`);
@@ -879,6 +989,8 @@ export class AgentService implements OnModuleInit {
           errorMessage: 'Run cancelled by user',
           stopReason: 'cancelled',
         });
+        this.forgetRun(runId);
+        this.knowledgeFilterBySession.delete(sessionId);
         return {
           runId,
           status: 'cancelled',
@@ -900,6 +1012,9 @@ export class AgentService implements OnModuleInit {
           errorMessage: errorMsg,
         });
 
+        this.forgetRun(runId);
+        this.knowledgeFilterBySession.delete(sessionId);
+
       return {
         runId,
         status: 'failed',
@@ -912,7 +1027,7 @@ export class AgentService implements OnModuleInit {
     const messages = await this.sessionStore.listMessages(sessionId);
     const lastAssistantMsg = [...messages].reverse().find((m) => m.role === 'assistant');
 
-    // P6.1: ONE payload builder — kernel usage > EventBus aggregates >
+    // P6.1: ONE payload builder â€” kernel usage > EventBus aggregates >
     // last-assistant message (lowest priority). The returned payload feeds
     // CostMeter, the persisted run row AND the HTTP response, so WS/HTTP
     // runs report identical payload fields.
@@ -941,7 +1056,7 @@ export class AgentService implements OnModuleInit {
       const turnMessages = messages
         .filter((m) => m.role === 'user' || m.role === 'assistant')
         .map((m) => ({ role: m.role, content: m.content || '' }));
-      await this.knowledgeService.processTurn(sessionId, turnMessages);
+      await this.knowledgeService.processTurn(sessionId, turnMessages, memoryScope);
     } catch (memError) {
       this.logger.warn(`Memory processing failed for session ${sessionId}`, memError);
     }
@@ -949,6 +1064,9 @@ export class AgentService implements OnModuleInit {
     const totalSteps = result.usage?.totalSteps ?? result.totalSteps ?? 0;
     const stopReason = payload.stopReason;
     const totalTokens = payload.totalTokens ?? inputTokens + outputTokens + reasoningTokens;
+
+    this.forgetRun(runId);
+    this.knowledgeFilterBySession.delete(sessionId);
 
     return {
       runId,
@@ -990,6 +1108,9 @@ export class AgentService implements OnModuleInit {
       errorMessage: errorMsg,
     });
 
+    this.forgetRun(runId);
+    this.knowledgeFilterBySession.delete(sessionId);
+
     return {
       runId,
       status: 'failed',
@@ -1004,9 +1125,10 @@ export class AgentService implements OnModuleInit {
 
   async runAgentStreaming(input: RunAgentInput): Promise<{ handle: any; runId: string }> {
     const { sessionId, prompt, model, provider, settings, projectPath } = input;
+    const memoryScope = this.memoryScopeFor({ userId: input.actorId, appId: input.appId });
     this.logger.log(`Running agent (streaming) for session ${sessionId}`);
 
-    // One live run per session (same guard as HTTP path) — thrown error is
+    // One live run per session (same guard as HTTP path) â€” thrown error is
     // surfaced to the client as run:error by the gateway's catch block.
     const activeRun = this.trackingService.findActiveRunForSession(sessionId);
     if (activeRun) {
@@ -1023,12 +1145,13 @@ export class AgentService implements OnModuleInit {
         input.permissionMode,
         sessionId,
         projectPath,
+        memoryScope,
       );
-      const ctx = this.buildRequestContext(provider, model, projectPath, input.selection);
+      const ctx = await this.buildRequestContext(provider, model, projectPath, input.selection, memoryScope.userId);
       if (!projectPath) {
         const ws = settings?.workspaceRoot ?? this.settingsService.getSettings().workspaceRoot;
         this.logger.warn(
-          `No projectPath for streaming session ${sessionId} — falling back to workspaceRoot=${ws}`,
+          `No projectPath for streaming session ${sessionId} â€” falling back to workspaceRoot=${ws}`,
         );
         if (ctx.overrides && !ctx.overrides.workspaceRoot) {
           (ctx.overrides as Record<string, unknown>).workspaceRoot = ws;
@@ -1041,9 +1164,25 @@ export class AgentService implements OnModuleInit {
       } else {
         this.knowledgeFilterBySession.delete(sessionId);
       }
-      const handle = kernel.createRunHandle(prompt, ctx, sessionId);
+      const preparedAttachments = await this.attachmentService.prepareInput(
+        prompt,
+        input.attachments,
+        this.attachmentRoot(projectPath, settings),
+      );
+      const finalPrompt = preparedAttachments.prompt;
+      const userContentParts = prepareUserContentParts(finalPrompt, [
+        ...(input.images ?? []),
+        ...preparedAttachments.images,
+      ]);
+      const handle = kernel.createRunHandle(
+        finalPrompt,
+        ctx,
+        sessionId,
+        userContentParts,
+      );
 
       const runId = handle.runId as string;
+      this.memoryScopeByRun?.set(runId, memoryScope);
 
       this.trackingService.startRun({
         runId,
@@ -1054,22 +1193,7 @@ export class AgentService implements OnModuleInit {
       });
 
       this.activeHandles.set(runId, handle);
-      this.activeKernels.set(runId, kernel);
-
-      handle.completed.then(
-        () => {
-          this.forgetRun(runId);
-          this.knowledgeFilterBySession.delete(sessionId);
-        },
-        () => {
-          this.forgetRun(runId);
-          this.knowledgeFilterBySession.delete(sessionId);
-        },
-      ).catch((err) => {
-        this.logger.error(`Stream handle error for run ${runId}`, err);
-        this.forgetRun(runId);
-        this.knowledgeFilterBySession.delete(sessionId);
-      });
+      this.trackRunKernel(runId, kernel);
 
       return { handle, runId };
     } catch (error) {
@@ -1086,7 +1210,7 @@ export class AgentService implements OnModuleInit {
       // run (kernel.ts createRunHandle). Writing handle.isCancelled directly
       // throws (getter-only) and was silently killing the whole cancel flow.
       handle.cancel();
-      // Persist terminal state NOW — if the in-flight LLM call never unwinds
+      // Persist terminal state NOW â€” if the in-flight LLM call never unwinds
       // (or the process dies mid-cancel), the run must not stay "running".
       // The completion path re-writes the same terminal status later.
       this.trackingService.completeRunFromResult({
@@ -1100,19 +1224,19 @@ export class AgentService implements OnModuleInit {
     }
 
     const status = this.trackingService.getRunStatus(runId);
-    if (status === 'running' || !status) {
+    if (status === 'running' || status === 'interrupted' || !status) {
       // No live handle but the row still says running (lost handle registry /
-      // zombie row) — persist a terminal status so the UI is never stuck.
+      // zombie row) â€” persist a terminal status so the UI is never stuck.
       this.trackingService.completeRunFromResult({
         runId,
         status: 'cancelled',
         errorMessage: 'Run cancelled by user',
         stopReason: 'cancelled',
       });
-      this.logger.warn(`No active handle for run ${runId} — persisted status set to cancelled`);
+      this.logger.warn(`No active handle for run ${runId} â€” persisted status set to cancelled`);
       return { cancelled: true, status: 'cancelled' };
     }
-    this.logger.warn(`Run ${runId} already ${status} — cannot cancel`);
+    this.logger.warn(`Run ${runId} already ${status} â€” cannot cancel`);
     return { cancelled: false, status };
   }
 
@@ -1137,10 +1261,93 @@ export class AgentService implements OnModuleInit {
     return this.activeHandles.has(runId);
   }
 
+  /** Persisted run row used by resume/attach endpoints before starting work. */
+  getRunInfo(runId: string) {
+    return this.trackingService.getRunRow(runId);
+  }
+
+  /**
+   * Latest interrupted run in a session that can be offered as "Resume".
+   * Suppressed while another run is live or this process already holds it.
+   */
+  getResumableRun(sessionId: string): {
+    runId: string;
+    sessionId: string;
+    startedAt?: string;
+    model?: string;
+    provider?: string;
+  } | null {
+    if (this.trackingService.findActiveRunForSession(sessionId)) return null;
+    const row = this.trackingService.findInterruptedRunForSession(sessionId);
+    if (!row?.id || !row.sessionId || this.activeHandles.has(row.id)) return null;
+    return {
+      runId: row.id,
+      sessionId: row.sessionId,
+      ...(row.startedAt ? { startedAt: row.startedAt } : {}),
+      ...(row.model ? { model: row.model } : {}),
+      ...(row.provider ? { provider: row.provider } : {}),
+    };
+  }
+
   /** Drop all live-run bookkeeping (handle + kernel) once a run finishes. */
   private forgetRun(runId: string): void {
     this.activeHandles.delete(runId);
     this.activeKernels.delete(runId);
+    this.memoryScopeByRun?.delete(runId);
+  }
+
+  /** Public cleanup for streaming runs â€” called by gateway after completeRunFromResult. */
+  cleanupRun(runId: string, sessionId: string): void {
+    this.forgetRun(runId);
+    this.knowledgeFilterBySession.delete(sessionId);
+  }
+
+  private trackRunKernel(runId: string, kernel: any): void {
+    this.activeKernels.set(runId, kernel);
+    if (!this.runKernels) this.runKernels = new Map();
+    this.runKernels.delete(runId);
+    this.runKernels.set(runId, kernel);
+    while (this.runKernels.size > 100) {
+      const oldest = this.runKernels.keys().next().value;
+      if (oldest === undefined) break;
+      this.runKernels.delete(oldest);
+    }
+  }
+
+  /** File pre-images captured by a run, without exposing their contents. */
+  getRunFileSnapshots(runId: string): Array<{
+    path: string;
+    existed: boolean;
+    size: number;
+    toolCallId: string;
+    toolName: string;
+    step: number;
+    at: string;
+    undone: boolean;
+  }> | null {
+    const kernel = this.activeKernels.get(runId) ?? this.runKernels?.get(runId);
+    if (!kernel?.getFileSnapshots) return null;
+    return kernel
+      .getFileSnapshots({ runId })
+      .map((snapshot: any) => ({
+        path: snapshot.path,
+        existed: snapshot.existed,
+        size: snapshot.size,
+        toolCallId: snapshot.toolCallId,
+        toolName: snapshot.toolName,
+        step: snapshot.step,
+        at: snapshot.at,
+        undone: snapshot.undone,
+      }));
+  }
+
+  /** Restore a run's captured file pre-images. Null when the kernel expired. */
+  async undoRunFiles(
+    runId: string,
+  ): Promise<{ restored: unknown[]; skipped: unknown[] } | null> {
+    const kernel = this.activeKernels.get(runId) ?? this.runKernels?.get(runId);
+    if (!kernel?.undoFileSnapshots) return null;
+    return kernel.undoFileSnapshots({ runId });
   }
 
   /**
@@ -1169,7 +1376,7 @@ export class AgentService implements OnModuleInit {
     const kernel = this.activeKernels.get(runId);
     if (!kernel || typeof kernel.sendInput !== 'function') {
       // Run row is active but this process holds no live kernel (e.g. after a
-      // restart) — the caller should start a new run rather than lose the text.
+      // restart) â€” the caller should start a new run rather than lose the text.
       return { queued: false, runId, status: 'unavailable' };
     }
 
@@ -1192,13 +1399,28 @@ export class AgentService implements OnModuleInit {
    * steering message appended as the latest user turn.
    *
    * Guards:
-   * - run row must exist and be status='running' (or missing → treat as
-   *   interrupted); terminal statuses → 409-style error.
+   * - run row must exist and be status='running' (or missing â†’ treat as
+   *   interrupted); terminal statuses â†’ 409-style error.
    * - reject if this process already holds a live handle (double-resume).
    * - reject if a *different* live run is active for the same session.
    *
-   * Does NOT call trackingService.startRun (row already exists → PK conflict).
+   * Does NOT call trackingService.startRun (row already exists â†’ PK conflict).
    */
+  /**
+   * Resume a run after an orphaned HITL request is answered. No-op when the
+   * run is already live in this process or has reached a terminal state.
+   */
+  resumeRunAfterHitl(input: ResumeRunInput): void {
+    const row = this.trackingService.getRunRow(input.runId);
+    if (!row) return;
+    if (row.status && row.status !== 'running' && row.status !== 'interrupted') return;
+    if (this.activeHandles.has(input.runId)) return;
+    this.logger.log(`HITL resolved ï¿½ resuming interrupted run ${input.runId}`);
+    void this.resumeRun({ ...input, prompt: input.prompt ?? '' }).catch((error: unknown) => {
+      this.logger.error(`HITL auto-resume failed for run ${input.runId}`, error as never);
+    });
+  }
+
   async resumeRun(input: ResumeRunInput): Promise<RunAgentResult> {
     const { runId, prompt = '', model, provider, settings, projectPath } = input;
     this.logger.log(`Resuming run ${runId} (prompt=${prompt ? 'steering' : 'pure-continuation'})`);
@@ -1208,11 +1430,11 @@ export class AgentService implements OnModuleInit {
       return { runId, status: 'failed', output: 'Run not found', totalSteps: 0 };
     }
     const status = row.status;
-    if (status && status !== 'running') {
+    if (status && status !== 'running' && status !== 'interrupted') {
       return {
         runId,
         status: status as RunAgentResult['status'],
-        output: `Run already ${status} — cannot resume`,
+        output: `Run already ${status} ï¿½?" cannot resume`,
         totalSteps: 0,
       };
     }
@@ -1221,7 +1443,7 @@ export class AgentService implements OnModuleInit {
     }
     const sessionId = row.sessionId ?? undefined;
     if (!sessionId) {
-      return { runId, status: 'failed', output: 'Run has no sessionId — cannot resume', totalSteps: 0 };
+      return { runId, status: 'failed', output: 'Run has no sessionId â€” cannot resume', totalSteps: 0 };
     }
     const activeRun = this.trackingService.findActiveRunForSession(sessionId);
     if (activeRun && activeRun.id !== runId) {
@@ -1233,10 +1455,20 @@ export class AgentService implements OnModuleInit {
       };
     }
 
+    this.trackingService.seedToolCallsCount(runId, row.toolCallsCount);
+    const snapshot = await this.runEventStore.getSnapshot(runId);
+    if (!snapshot?.state?.sessionId) {
+      await this.runEventStore.saveSnapshot(runId, {
+        ...(snapshot?.state ?? {}),
+        sessionId,
+      });
+    }
     const runStartedAt = Date.now();
     const resolvedModel = model ?? row.model ?? undefined;
     const resolvedProvider = provider ?? row.provider ?? undefined;
-    // Do NOT hydrateSessionState — resumeRun restores its own per-run state.
+    const memoryScope = this.memoryScopeByRun?.get(runId) ?? this.memoryScopeFor({ userId: input.actorId, appId: input.appId });
+    this.memoryScopeByRun?.set(runId, memoryScope);
+    // Do NOT hydrateSessionState ï¿½ resumeRun restores its own per-run state.
     const kernel = await this.getKernel(
       resolvedModel,
       resolvedProvider,
@@ -1244,10 +1476,12 @@ export class AgentService implements OnModuleInit {
       input.permissionMode,
       sessionId,
       projectPath,
+      memoryScope,
     );
-    const ctx = this.buildRequestContext(resolvedProvider, resolvedModel, projectPath, input.selection);
+    const ctx = await this.buildRequestContext(resolvedProvider, resolvedModel, projectPath, input.selection, memoryScope.userId);
 
     try {
+      this.trackingService.markRunRunning(runId);
       const handle = await kernel.resumeRun(runId as never, prompt, ctx, sessionId);
 
       // Adapt SDK RunHandle {completed: Promise<void>, abort()} to the
@@ -1263,7 +1497,7 @@ export class AgentService implements OnModuleInit {
         },
       };
       this.activeHandles.set(runId, adapted);
-      this.activeKernels.set(runId, kernel);
+      this.trackRunKernel(runId, kernel);
 
       handle.completed.then(
         () => {
@@ -1280,7 +1514,7 @@ export class AgentService implements OnModuleInit {
         this.knowledgeFilterBySession.delete(sessionId);
       });
 
-      // resumeRun returns Promise<void> — no AgentRunResult. Wait for
+      // resumeRun returns Promise<void> â€” no AgentRunResult. Wait for
       // completion and derive terminal status; usage was already recorded
       // by the EventBus subscription (recordRunUsage).
       await handle.completed;
@@ -1324,3 +1558,5 @@ export class AgentService implements OnModuleInit {
     return this.sessionStore.getSessionStats();
   }
 }
+
+

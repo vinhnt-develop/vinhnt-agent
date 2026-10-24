@@ -786,6 +786,110 @@ describe('SC1 runtime guards (updateSettings)', () => {
   });
 });
 
+describe('VNT-322 agent runtime settings', () => {
+  it('seeds browse roots/home/elicit timeout and syncs the store', () => {
+    const { svc, tmpDir, store } = makeRealService({
+      'agent.browseRoots': `/one${path.delimiter}/two,/three`,
+      'agent.browseHome': ' D:/home ',
+      'agent.elicitTimeoutMs': '45000',
+    });
+    try {
+      const s = svc.getSettings();
+      expect(s.browseRoots).toEqual(['/one', '/two', '/three']);
+      expect(s.browseHome).toBe('D:/home');
+      expect(s.elicitTimeoutMs).toBe(45000);
+      expect(store.getBrowseRoots()).toEqual(['/one', '/two', '/three']);
+      expect(store.getBrowseHome()).toBe('D:/home');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('trims/dedupes roots and drops malformed runtime values', () => {
+    const svc = makeService();
+    const out = svc.updateSettings({
+      browseRoots: [' D:/a ', '', 'D:/a', 'D:/b'],
+      browseHome: ' D:/home ',
+      elicitTimeoutMs: 45000,
+    });
+    expect(out.browseRoots).toEqual(['D:/a', 'D:/b']);
+    expect(out.browseHome).toBe('D:/home');
+    expect(out.elicitTimeoutMs).toBe(45000);
+
+    const bad = makeService().updateSettings({
+      browseRoots: 'not-an-array' as unknown as string[],
+      browseHome: 1 as unknown as string,
+      elicitTimeoutMs: 3_600_001,
+    });
+    expect(bad.browseRoots).toBeUndefined();
+    expect(bad.browseHome).toBeUndefined();
+    expect(bad.elicitTimeoutMs).toBeUndefined();
+  });
+});
+
+describe('VNT-323 ops status', () => {
+  it('summarizes config without leaking secrets', () => {
+    const { svc, tmpDir } = makeRealService({
+      NODE_ENV: 'production',
+      APP_HOST: '0.0.0.0',
+      APP_PORT: '9090',
+      APP_API_PREFIX: 'v1',
+      APP_CORS_ORIGIN: 'https://example.test',
+      DATABASE_URL: 'postgres://user:password@db.local:5432/agent',
+      AUTH_SECRET: 'super-secret',
+      SYNC_ENABLED: 'true',
+      SYNC_API_URL: 'https://sync.test',
+      SYNC_API_KEY: 'sync-secret',
+    });
+    try {
+      const status = svc.getOpsStatus();
+      expect(status.runtime).toEqual({ nodeEnv: 'production', configDir: tmpDir });
+      expect(status.server).toEqual({
+        host: '0.0.0.0',
+        port: '9090',
+        apiPrefix: 'v1',
+        corsOrigin: 'https://example.test',
+      });
+      expect(status.database).toEqual({
+        configured: true,
+        driver: 'postgres',
+        target: 'db.local:5432/agent',
+      });
+      expect(status.auth.secretConfigured).toBe(true);
+      expect(status.sync).toEqual({
+        enabled: true,
+        apiUrlConfigured: true,
+        apiKeyConfigured: true,
+        consumers: 'none',
+      });
+      const serialized = JSON.stringify(status);
+      expect(serialized).not.toContain('password');
+      expect(serialized).not.toContain('super-secret');
+      expect(serialized).not.toContain('sync-secret');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports sqlite paths and missing auth without values', () => {
+    const { svc, tmpDir } = makeRealService({
+      DATABASE_URL: 'file:./data/agent.db',
+    });
+    try {
+      const status = svc.getOpsStatus();
+      expect(status.database).toEqual({
+        configured: true,
+        driver: 'sqlite',
+        target: './data/agent.db',
+      });
+      expect(status.auth.secretConfigured).toBe(false);
+      expect(status.sync.enabled).toBe(false);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('SC2 DTO validation for SC fields (global ValidationPipe)', () => {
   const pipe = new ValidationPipe({
     whitelist: true,
@@ -833,5 +937,21 @@ describe('SC2 DTO validation for SC fields (global ValidationPipe)', () => {
     const out = await validate({ autoApproval: true, evilKey: 'payload' });
     expect(out).not.toHaveProperty('evilKey');
     expect((out as UpdateKernelSettingsDto).autoApproval).toBe(true);
+  });
+
+  it('validates runtime browse/elicit fields', async () => {
+    const out = (await validate({
+      browseRoots: ['D:/a', 'D:/b'],
+      browseHome: 'D:/home',
+      elicitTimeoutMs: 45000,
+    })) as UpdateKernelSettingsDto;
+    expect(out.browseRoots).toEqual(['D:/a', 'D:/b']);
+    expect(out.browseHome).toBe('D:/home');
+    expect(out.elicitTimeoutMs).toBe(45000);
+
+    await expect(validate({ browseRoots: [1] })).rejects.toThrow();
+    await expect(validate({ browseRoots: Array(33).fill('D:/x') })).rejects.toThrow();
+    await expect(validate({ elicitTimeoutMs: 999 })).rejects.toThrow();
+    await expect(validate({ elicitTimeoutMs: 3600001 })).rejects.toThrow();
   });
 });

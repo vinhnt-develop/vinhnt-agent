@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsNumber, IsIn } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsIn, IsInt, Min, Max } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Expose, Type } from 'class-transformer';
 import { PaginationDto } from '@/common/dto/pagination.dto';
@@ -115,6 +115,19 @@ export class SessionResponseDto {
   @Expose({ name: 'provider' })
   provider?: string;
 
+  @ApiPropertyOptional({
+    name: 'parentId',
+    type: String,
+    nullable: true,
+    description: 'Parent session id when this session was created by a fork',
+  })
+  @Expose({ name: 'parentId' })
+  parentId?: string | null;
+
+  @ApiPropertyOptional({ name: 'gitBranch', type: String, nullable: true })
+  @Expose({ name: 'gitBranch' })
+  gitBranch?: string | null;
+
   @ApiPropertyOptional({ name: 'cost', type: Number, description: 'Total cost', example: 0.0023 })
   @Expose({ name: 'cost' })
   cost?: number;
@@ -217,4 +230,147 @@ export class ListMessagesDto extends PaginationDto {
   @IsIn(['asc', 'desc'])
   @Expose({ name: 'order' })
   order?: 'asc' | 'desc' = 'asc';
+}
+
+export class ForkSessionDto {
+  @ApiPropertyOptional({ name: 'title', type: String, description: 'Fork title (defaults to "<source title> (fork)")' })
+  @IsOptional()
+  @IsString()
+  @Expose({ name: 'title' })
+  title?: string;
+
+  @ApiPropertyOptional({
+    name: 'atMessageId',
+    type: String,
+    description: 'Copy this message and everything before it. Omit to copy the full history.',
+  })
+  @IsOptional()
+  @IsString()
+  @Expose({ name: 'atMessageId' })
+  atMessageId?: string;
+
+  @ApiPropertyOptional({
+    name: 'limit',
+    type: Number,
+    description: 'After applying atMessageId, keep only the newest N messages.',
+    minimum: 1,
+    maximum: 10000,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10000)
+  @Expose({ name: 'limit' })
+  limit?: number;
+}
+
+export class ForkSessionResponseDto {
+  @ApiProperty({ name: 'session', type: SessionResponseDto, description: 'Newly created child session' })
+  @Type(() => SessionResponseDto)
+  @Expose({ name: 'session' })
+  session!: SessionResponseDto;
+
+  @ApiProperty({ name: 'copiedMessageCount', type: Number, description: 'Number of messages copied into the fork', example: 12 })
+  @Expose({ name: 'copiedMessageCount' })
+  copiedMessageCount!: number;
+}
+
+export class SessionSummaryResponseDto {
+  @ApiProperty({ name: 'sessionId', type: String })
+  @Expose({ name: 'sessionId' })
+  sessionId!: string;
+
+  @ApiPropertyOptional({ name: 'title', type: String, nullable: true })
+  @Expose({ name: 'title' })
+  title?: string | null;
+
+  @ApiPropertyOptional({ name: 'projectId', type: String, nullable: true })
+  @Expose({ name: 'projectId' })
+  projectId?: string | null;
+
+  @ApiPropertyOptional({ name: 'parentId', type: String, nullable: true })
+  @Expose({ name: 'parentId' })
+  parentId?: string | null;
+
+  @ApiPropertyOptional({ name: 'model', type: String, nullable: true })
+  @Expose({ name: 'model' })
+  model?: string | null;
+
+  @ApiPropertyOptional({ name: 'provider', type: String, nullable: true })
+  @Expose({ name: 'provider' })
+  provider?: string | null;
+
+  @ApiPropertyOptional({ name: 'gitBranch', type: String, nullable: true })
+  @Expose({ name: 'gitBranch' })
+  gitBranch?: string | null;
+
+  @ApiProperty({ name: 'messageCount', type: Number })
+  @Expose({ name: 'messageCount' })
+  messageCount!: number;
+
+  @ApiProperty({ name: 'userMessageCount', type: Number })
+  @Expose({ name: 'userMessageCount' })
+  userMessageCount!: number;
+
+  @ApiProperty({ name: 'assistantMessageCount', type: Number })
+  @Expose({ name: 'assistantMessageCount' })
+  assistantMessageCount!: number;
+
+  @ApiProperty({ name: 'toolMessageCount', type: Number })
+  @Expose({ name: 'toolMessageCount' })
+  toolMessageCount!: number;
+
+  @ApiProperty({ name: 'systemMessageCount', type: Number })
+  @Expose({ name: 'systemMessageCount' })
+  systemMessageCount!: number;
+
+  @ApiPropertyOptional({ name: 'firstMessageAt', type: String, nullable: true })
+  @Expose({ name: 'firstMessageAt' })
+  firstMessageAt?: string | null;
+
+  @ApiPropertyOptional({ name: 'lastMessageAt', type: String, nullable: true })
+  @Expose({ name: 'lastMessageAt' })
+  lastMessageAt?: string | null;
+
+  @ApiProperty({ name: 'runCount', type: Number })
+  @Expose({ name: 'runCount' })
+  runCount!: number;
+
+  @ApiProperty({
+    name: 'runStatusCounts',
+    type: 'object',
+    additionalProperties: { type: 'number' },
+    description: 'Run counts keyed by status (pending/running/succeeded/failed/cancelled/interrupted)',
+  })
+  @Expose({ name: 'runStatusCounts' })
+  runStatusCounts!: Record<string, number>;
+
+  @ApiProperty({ name: 'inputTokens', type: Number })
+  @Expose({ name: 'inputTokens' })
+  inputTokens!: number;
+
+  @ApiProperty({ name: 'outputTokens', type: Number })
+  @Expose({ name: 'outputTokens' })
+  outputTokens!: number;
+
+  @ApiProperty({ name: 'reasoningTokens', type: Number })
+  @Expose({ name: 'reasoningTokens' })
+  reasoningTokens!: number;
+
+  @ApiProperty({ name: 'totalTokens', type: Number })
+  @Expose({ name: 'totalTokens' })
+  totalTokens!: number;
+
+  @ApiProperty({ name: 'cost', type: Number })
+  @Expose({ name: 'cost' })
+  cost!: number;
+
+  @ApiProperty({ name: 'toolCallsCount', type: Number })
+  @Expose({ name: 'toolCallsCount' })
+  toolCallsCount!: number;
+
+  @ApiPropertyOptional({ name: 'lastRunAt', type: String, nullable: true })
+  @Expose({ name: 'lastRunAt' })
+  lastRunAt?: string | null;
 }

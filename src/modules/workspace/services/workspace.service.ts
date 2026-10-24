@@ -46,7 +46,7 @@ export class WorkspaceService {
 
   async softDelete(id: string, userId: string) {
     await this.findById(id, userId);
-    await this.workspaceRepository.softDelete(id);
+    await this.workspaceRepository.softDeleteCascade(id);
   }
 
   async setActive(id: string, userId: string) {

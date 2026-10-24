@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import type { McpGovernanceConfig } from '@vinhnt-sdk/mcp';
 import { McpServerRepository } from '../repositories/mcp-server.repository';
 
 @Injectable()
@@ -32,6 +33,9 @@ export class McpServerService {
     args?: string[];
     url?: string;
     env?: Record<string, string>;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    governance?: McpGovernanceConfig;
     isEnabled?: boolean;
   }) {
     const existing = await this.mcpServerRepository.findByName(data.name);
@@ -48,6 +52,9 @@ export class McpServerService {
     args?: string[];
     url?: string;
     env?: Record<string, string>;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    governance?: McpGovernanceConfig | null;
     isEnabled?: boolean;
   }) {
     await this.findById(id);

@@ -1,8 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+﻿import { Injectable, Logger } from '@nestjs/common';
 import { LearningEngine } from '@vinhnt-sdk/knowledge';
 import type { MemoryEntry } from '@vinhnt-sdk/schema';
 import { SqliteMemoryStore } from '@/infrastructure/storage/sqlite-memory-store';
 import { KnowledgeService } from './knowledge.service';
+
+/** Owner of learned memory; `userId` turns facts into cross-session memory. */
+export interface MemoryOwnerScope {
+  userId?: string;
+  appId?: string;
+}
 
 @Injectable()
 export class AgentKnowledgeService {
@@ -17,14 +23,24 @@ export class AgentKnowledgeService {
     private readonly knowledgeService: KnowledgeService,
   ) {}
 
+  /** Scope-aware cache key: memory must never be shared across users. */
+  private engineKey(sessionId: string, scope?: MemoryOwnerScope): string {
+    return `${scope?.userId ?? ''}|${scope?.appId ?? ''}|${sessionId}`;
+  }
+
+  private hasOwner(scope?: MemoryOwnerScope): scope is MemoryOwnerScope {
+    return scope?.userId !== undefined || scope?.appId !== undefined;
+  }
+
   /**
    * Get or create a LearningEngine for a session.
    * Uses LRU eviction with max size and TTL.
    */
-  private getEngine(sessionId: string): LearningEngine {
-    this.lastAccess.set(sessionId, Date.now());
+  private getEngine(sessionId: string, scope?: MemoryOwnerScope): LearningEngine {
+    const key = this.engineKey(sessionId, scope);
+    this.lastAccess.set(key, Date.now());
 
-    if (!this.engines.has(sessionId)) {
+    if (!this.engines.has(key)) {
       // Evict oldest if at capacity
       if (this.engines.size >= this.MAX_ENGINES) {
         let oldestKey: string | null = null;
@@ -53,10 +69,11 @@ export class AgentKnowledgeService {
         },
         sessionId,
         store: this.memoryStore,
+        ...(this.hasOwner(scope) ? { scope } : {}),
       });
-      this.engines.set(sessionId, engine);
+      this.engines.set(key, engine);
     }
-    return this.engines.get(sessionId)!;
+    return this.engines.get(key)!;
   }
 
   /**
@@ -65,9 +82,13 @@ export class AgentKnowledgeService {
    * P4.5: when `includeIds` is provided (composer knowledge selection), only
    * those knowledge entries are included; SDK memory is always kept.
    */
-  async buildMemoryBlock(sessionId: string, includeIds?: readonly string[]): Promise<MemoryEntry[]> {
+  async buildMemoryBlock(
+    sessionId: string,
+    includeIds?: readonly string[],
+    scope?: MemoryOwnerScope,
+  ): Promise<MemoryEntry[]> {
     try {
-      const engine = this.getEngine(sessionId);
+      const engine = this.getEngine(sessionId, scope);
       const sdkMemory = engine.buildMemoryBlock();
 
       // Also fetch knowledge base entries
@@ -93,14 +114,15 @@ export class AgentKnowledgeService {
   }
 
   /**
-   * Process a completed turn — extract facts and store in memory.
+   * Process a completed turn â€” extract facts and store in memory.
    */
   async processTurn(
     sessionId: string,
     messages: Array<{ role: string; content: string }>,
+    scope?: MemoryOwnerScope,
   ): Promise<{ extracted: number; staged: number }> {
     try {
-      const engine = this.getEngine(sessionId);
+      const engine = this.getEngine(sessionId, scope);
       const result = await engine.processTurn(messages);
       this.logger.debug(`Memory extracted: ${result.extracted}, staged: ${result.staged}`);
       return result;
@@ -113,32 +135,42 @@ export class AgentKnowledgeService {
   /**
    * Set a working memory fact for a session.
    */
-  async setWorkingFact(sessionId: string, key: string, value: string): Promise<void> {
-    const engine = this.getEngine(sessionId);
+  async setWorkingFact(
+    sessionId: string,
+    key: string,
+    value: string,
+    scope?: MemoryOwnerScope,
+  ): Promise<void> {
+    const engine = this.getEngine(sessionId, scope);
     await engine.setWorkingFact(key, value);
   }
 
   /**
    * Set profile (long-term identity) for a session.
    */
-  async setProfile(sessionId: string, value: string): Promise<void> {
-    const engine = this.getEngine(sessionId);
+  async setProfile(sessionId: string, value: string, scope?: MemoryOwnerScope): Promise<void> {
+    const engine = this.getEngine(sessionId, scope);
     await engine.setProfile(value);
   }
 
   /**
    * Clear working memory for a session.
    */
-  clearWorking(sessionId: string): void {
-    const engine = this.getEngine(sessionId);
+  clearWorking(sessionId: string, scope?: MemoryOwnerScope): void {
+    const engine = this.getEngine(sessionId, scope);
     engine.clearWorking();
   }
 
   /**
-   * Clean up engine for a session (e.g., on session delete).
+   * Clean up engines for a session (e.g., on session delete).
    */
   dispose(sessionId: string): void {
-    this.engines.delete(sessionId);
-    this.lastAccess.delete(sessionId);
+    const suffix = `|${sessionId}`;
+    for (const key of [...this.engines.keys()]) {
+      if (key.endsWith(suffix)) {
+        this.engines.delete(key);
+        this.lastAccess.delete(key);
+      }
+    }
   }
 }

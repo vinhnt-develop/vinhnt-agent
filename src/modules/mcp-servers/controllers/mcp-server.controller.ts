@@ -17,7 +17,7 @@ import type { ApiResponse } from '@/common/interfaces';
 import { McpServerService } from '../services/mcp-server.service';
 import { AgentToolkit } from '@/modules/agent/services/agent-toolkit';
 import { CreateMcpServerDto, UpdateMcpServerDto, McpServerResponseDto } from '../dto';
-import type { McpServerConfig } from '@vinhnt-sdk/mcp';
+import type { McpGovernanceConfig, McpServerConfig } from '@vinhnt-sdk/mcp';
 
 @ApiTags('MCP Servers')
 @ApiExtraModels(CreateMcpServerDto, UpdateMcpServerDto, McpServerResponseDto)
@@ -37,6 +37,9 @@ export class McpServerController {
     args?: string[] | null;
     url?: string | null;
     env?: Record<string, string> | null;
+    headers?: Record<string, string> | null;
+    timeoutMs?: number | null;
+    governance?: McpGovernanceConfig | null;
   }): McpServerConfig {
     return {
       name: server.name,
@@ -45,6 +48,9 @@ export class McpServerController {
       args: Array.isArray(server.args) ? server.args : undefined,
       url: server.url ?? undefined,
       env: server.env as Record<string, string> | undefined,
+      headers: (server.headers as Record<string, string> | undefined) ?? undefined,
+      timeoutMs: server.timeoutMs ?? undefined,
+      governance: server.governance ?? undefined,
     };
   }
 

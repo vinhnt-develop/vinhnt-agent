@@ -9,6 +9,8 @@ import {
   IsOptional,
   ValidateNested,
   IsArray,
+  ArrayMaxSize,
+  IsIn,
 } from 'class-validator';
 import { Expose, Type } from 'class-transformer';
 import type { PermissionMode } from '@/shared/permission-mode';
@@ -68,6 +70,45 @@ export class SelectionDto {
   @IsOptional()
   @Expose({ name: 'knowledge' })
   knowledge?: SelectedKnowledgeDto[];
+}
+
+export class ImageAttachmentDto {
+  @ApiProperty({
+    name: 'dataUrl',
+    type: String,
+    description:
+      'Base64 data URL for a PNG, JPEG, WebP, or GIF image (max 5 MB decoded).',
+    example: 'data:image/png;base64,iVBORw0KGgo...',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(8_000_000)
+  @Expose({ name: 'dataUrl' })
+  dataUrl!: string;
+
+  @ApiPropertyOptional({
+    name: 'mimeType',
+    type: String,
+    enum: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+    description: 'Optional MIME type; must match the data URL when provided.',
+  })
+  @IsString()
+  @IsIn(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+  @IsOptional()
+  @Expose({ name: 'mimeType' })
+  mimeType?: string;
+
+  @ApiPropertyOptional({
+    name: 'name',
+    type: String,
+    description: 'Display name for the image.',
+    example: 'screenshot.png',
+  })
+  @IsString()
+  @MaxLength(200)
+  @IsOptional()
+  @Expose({ name: 'name' })
+  name?: string;
 }
 
 export class RunAgentDto {
@@ -170,6 +211,7 @@ export class RunAgentDto {
     example: 'ask',
   })
   @IsOptional()
+  @IsString()
   @Expose({ name: 'permissionMode' })
   permissionMode?: PermissionMode;
 
@@ -183,4 +225,33 @@ export class RunAgentDto {
   @IsOptional()
   @Expose({ name: 'selection' })
   selection?: SelectionDto;
+
+  @ApiPropertyOptional({
+    name: 'attachments',
+    type: [String],
+    description:
+      'Project-relative file paths attached to this message (max 20). The server validates containment and inlines small text files.',
+    example: ['src/index.ts', 'README.md'],
+  })
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  @MaxLength(2000, { each: true })
+  @IsOptional()
+  @Expose({ name: 'attachments' })
+  attachments?: string[];
+
+  @ApiPropertyOptional({
+    name: 'images',
+    type: [ImageAttachmentDto],
+    description:
+      'Pasted images as base64 data URLs (max 5). Sent to vision-capable models as image_url content parts.',
+  })
+  @IsArray()
+  @ArrayMaxSize(5)
+  @ValidateNested({ each: true })
+  @Type(() => ImageAttachmentDto)
+  @IsOptional()
+  @Expose({ name: 'images' })
+  images?: ImageAttachmentDto[];
 }

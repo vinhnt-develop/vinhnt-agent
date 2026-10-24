@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, real, index } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, primaryKey } from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import { projects } from '@/modules/project/schemas/project.schema';
 
@@ -12,7 +12,6 @@ export const sessions = sqliteTable('sessions', {
   cost: real('cost').default(0),
   inputTokens: integer('input_tokens').default(0),
   outputTokens: integer('output_tokens').default(0),
-  directory: text('directory'),
   gitBranch: text('git_branch'),
   version: text('version'),
   parentId: text('parent_id'),
@@ -22,6 +21,17 @@ export const sessions = sqliteTable('sessions', {
   deletedAt: text('deleted_at'),
 }, (table) => [
   index('idx_sessions_project_id').on(table.projectId),
+  index('idx_sessions_parent_id').on(table.parentId),
+]);
+
+export const sessionSurfaces = sqliteTable('session_surfaces', {
+  sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  surfaceId: text('surface_id').notNull(),
+  payload: text('payload', { mode: 'json' }).notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(datetime('now'))`),
+}, (table) => [
+  primaryKey({ columns: [table.sessionId, table.surfaceId] }),
+  index('idx_session_surfaces_session_id').on(table.sessionId),
 ]);
 
 export const messages = sqliteTable('messages', {

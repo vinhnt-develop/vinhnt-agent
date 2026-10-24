@@ -23,21 +23,22 @@ export function resolveElicitTimeoutMs(
  */
 export function withElicitationDeadline(
   tool: ToolDefinition,
-  timeoutMs: number = DEFAULT_ELICIT_TIMEOUT_MS,
+  timeoutMs: number | (() => number) = DEFAULT_ELICIT_TIMEOUT_MS,
 ): ToolDefinition {
   return {
     ...tool,
     execute: async (raw: unknown, ctx: ToolContext) => {
       const ask = ctx.askElicitation;
       if (!ask) return tool.execute(raw, ctx);
-      const expiresAt = Date.now() + timeoutMs;
+      const resolved = typeof timeoutMs === 'function' ? timeoutMs() : timeoutMs;
+      const expiresAt = Date.now() + resolved;
       return tool.execute(raw, {
         ...ctx,
         askElicitation: (input) =>
           ask({
             ...input,
             expiresAt,
-            timeoutMs,
+            timeoutMs: resolved,
           }),
       });
     },

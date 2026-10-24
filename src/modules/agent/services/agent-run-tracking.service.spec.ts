@@ -4,20 +4,26 @@ describe('AgentRunTrackingService (P6.1 payload consolidation)', () => {
   let tracking: AgentRunTrackingService;
   let agentRunRepository: {
     create: jest.Mock;
+    createIfAbsent: jest.Mock;
     update: jest.Mock;
     findById: jest.Mock;
     cleanupStaleRuns: jest.Mock;
     findActiveBySessionId: jest.Mock;
+    findRunning?: jest.Mock;
+    interruptAllRunning?: jest.Mock;
+    dismissInterruptedForSession?: jest.Mock;
   };
   let toolExecutionRepository: {
     create: jest.Mock;
     update: jest.Mock;
     cancelRunningByRunId: jest.Mock;
+    failAllRunning?: jest.Mock;
   };
 
   beforeEach(() => {
     agentRunRepository = {
       create: jest.fn(),
+      createIfAbsent: jest.fn(),
       update: jest.fn(),
       findById: jest.fn(),
       cleanupStaleRuns: jest.fn(),
@@ -249,6 +255,125 @@ describe('AgentRunTrackingService (P6.1 payload consolidation)', () => {
         result: { usage: { toolCallsCount: 7 } },
       });
       expect(lastUpdatePayload().toolCallsCount).toBe(7);
+    });
+  });
+
+  describe('resume lifecycle', () => {
+    it('boot reconciliation keeps orphan runs resumable', () => {
+      agentRunRepository.findRunning = jest.fn(() => [{ id: 'r1' }]);
+      agentRunRepository.interruptAllRunning = jest.fn();
+      toolExecutionRepository.failAllRunning = jest.fn();
+
+      tracking.onApplicationBootstrap();
+
+      expect(agentRunRepository.interruptAllRunning).toHaveBeenCalledTimes(1);
+      expect(toolExecutionRepository.failAllRunning).toHaveBeenCalledTimes(1);
+    });
+
+    it('a fresh run supersedes stale interrupted runs', () => {
+      agentRunRepository.dismissInterruptedForSession = jest.fn();
+
+      tracking.startRun({ runId: 'r2', sessionId: 's1' });
+
+      expect(agentRunRepository.dismissInterruptedForSession).toHaveBeenCalledWith('s1');
+      expect(agentRunRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'r2', sessionId: 's1', status: 'running' }),
+      );
+    });
+
+    it('keeps the pre-restart tool count when a resumed run completes', () => {
+      tracking.seedToolCallsCount('r1', 4);
+      tracking.startToolExecution({ runId: 'r1', toolName: 'read_file' });
+
+      tracking.completeRunFromResult({
+        runId: 'r1',
+        status: 'succeeded',
+      });
+
+      expect(lastUpdatePayload().toolCallsCount).toBe(5);
+    });
+  });
+
+  describe('child run lineage', () => {
+    it('persists parent/agent/trace ids for a sub-agent run', () => {
+      tracking.startChildRun({
+        runId: 'child-1',
+        sessionId: 's1',
+        parentRunId: 'parent-1',
+        agentId: 'code-reviewer',
+        traceId: 'trace-1',
+        model: 'gpt-4o',
+        provider: 'openai',
+        subAgent: {
+          mode: 'tool',
+          parentAgentId: 'orchestrator',
+          toolName: 'delegate',
+          allowlist: ['read_file'],
+          budget: { maxSteps: 4, maxDepth: 3 },
+          transcript: 'isolated',
+        },
+      });
+
+      expect(agentRunRepository.createIfAbsent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'child-1',
+          sessionId: 's1',
+          parentRunId: 'parent-1',
+          agentId: 'code-reviewer',
+          traceId: 'trace-1',
+          triggerType: 'subagent',
+          status: 'running',
+          metadata: {
+            subAgent: expect.objectContaining({
+              mode: 'tool',
+              toolName: 'delegate',
+              transcript: 'isolated',
+            }),
+          },
+        }),
+      );
+    });
+
+    it('does not create a child row without a session id', () => {
+      tracking.startChildRun({
+        runId: 'child-1',
+        parentRunId: 'parent-1',
+      });
+
+      expect(agentRunRepository.createIfAbsent).not.toHaveBeenCalled();
+    });
+
+    it('completes only child runs and clears the tracked id', () => {
+      tracking.startChildRun({
+        runId: 'child-1',
+        sessionId: 's1',
+        parentRunId: 'parent-1',
+      });
+
+      expect(
+        tracking.completeChildRun({
+          runId: 'child-1',
+          result: { status: 'succeeded', output: 'ok' },
+        }),
+      ).toBe(true);
+      expect(lastUpdatePayload().status).toBe('succeeded');
+
+      expect(
+        tracking.completeChildRun({
+          runId: 'child-1',
+          result: { status: 'succeeded' },
+        }),
+      ).toBe(false);
+    });
+
+    it('ignores completion for a run that was not started as a child', () => {
+      expect(
+        tracking.completeChildRun({
+          runId: 'top-level',
+          result: { status: 'succeeded' },
+        }),
+      ).toBe(false);
+      expect(agentRunRepository.update).not.toHaveBeenCalled();
     });
   });
 });

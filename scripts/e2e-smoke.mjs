@@ -6,6 +6,7 @@
  * Usage: node scripts/e2e-smoke.mjs
  * Env:   SMOKE_BASE_URL (default http://localhost:8080)
  *        SMOKE_TIMEOUT_MS (default 600000)
+ *        SMOKE_ACCESS_TOKEN (optional; auto-signed from .env AUTH_SECRET)
  *        SMOKE_PROVIDER  (default lm-studio)
  *        SMOKE_MODEL     (default google/gemma-4-12b-qat)
  *
@@ -32,8 +33,33 @@ function loadSocketIo() {
   }
 }
 
+function resolveAccessToken() {
+  if (process.env.SMOKE_ACCESS_TOKEN) return process.env.SMOKE_ACCESS_TOKEN;
+
+  let secret = process.env.AUTH_SECRET;
+  const envPath = path.join(AGENT_ROOT, '.env');
+  if (!secret && fs.existsSync(envPath)) {
+    const line = fs
+      .readFileSync(envPath, 'utf8')
+      .split(/\r?\n/)
+      .find((entry) => /^\s*AUTH_SECRET\s*=/.test(entry));
+    if (line) {
+      secret = line
+        .slice(line.indexOf('=') + 1)
+        .trim()
+        .replace(/^['"]|['"]$/g, '');
+    }
+  }
+  if (!secret) {
+    throw new Error('SMOKE_ACCESS_TOKEN or AUTH_SECRET is required');
+  }
+  const jwt = createRequire(import.meta.url)('jsonwebtoken');
+  return jwt.sign({ id: 'smoke', type: 'access' }, secret, { expiresIn: '1h' });
+}
+
 const BASE = process.env.SMOKE_BASE_URL || 'http://localhost:8080';
 const API = `${BASE}/api/v1`;
+const TOKEN = resolveAccessToken();
 const TIMEOUT_MS = Number(process.env.SMOKE_TIMEOUT_MS || 600_000);
 const PROVIDER = process.env.SMOKE_PROVIDER || 'lm-studio';
 const MODEL = process.env.SMOKE_MODEL || 'google/gemma-4-12b-qat';
@@ -48,7 +74,10 @@ function check(name, ok, detail = '') {
 async function api(method, pathname, body) {
   const res = await fetch(`${API}${pathname}`, {
     method,
-    headers: body ? { 'content-type': 'application/json' } : undefined,
+    headers: {
+      ...(body ? { 'content-type': 'application/json' } : {}),
+      ...(TOKEN ? { authorization: `Bearer ${TOKEN}` } : {}),
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
   const json = await res.json().catch(() => null);
@@ -105,16 +134,23 @@ async function main() {
 
   // 4. WS run
   const { io } = loadSocketIo();
-  const socket = io(`${BASE}/agent`, { transports: ['websocket'], reconnection: false });
+  const socket = io(`${BASE}/agent`, {
+    transports: ['websocket'],
+    reconnection: false,
+    query: TOKEN ? { token: TOKEN } : undefined,
+  });
 
   const toolEvents = [];
   const textChunks = [];
   let startedRunId;
   const done = new Promise((resolve) => {
-    const timer = setTimeout(
-      () => resolve({ outcome: 'timeout', detail: `no terminal event after ${TIMEOUT_MS}ms` }),
-      TIMEOUT_MS,
-    );
+    const timer = setTimeout(() => {
+      socket.emit('cancel', {
+        ...(startedRunId ? { runId: startedRunId } : {}),
+        sessionId: session.id,
+      });
+      resolve({ outcome: 'timeout', detail: `no terminal event after ${TIMEOUT_MS}ms` });
+    }, TIMEOUT_MS);
     const settle = (v) => {
       clearTimeout(timer);
       resolve(v);

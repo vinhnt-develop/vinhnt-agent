@@ -44,6 +44,26 @@ describe('FilesystemService', () => {
     );
   });
 
+  it('uses saved runtime roots/home over the env seed', async () => {
+    const extra = await fs.mkdtemp(path.join(os.tmpdir(), 'vinhnt-fs-extra-'));
+    try {
+      service = new FilesystemService({
+        getWorkspaceRoot: () => tmp,
+        getBrowseRoots: () => [extra],
+        getBrowseHome: () => home,
+      } as never);
+      const roots = await service.getRoots();
+      expect(roots.find((root) => root.kind === 'home')?.path.toLowerCase()).toBe(
+        (await fs.realpath(home)).toLowerCase(),
+      );
+      expect(roots.find((root) => root.kind === 'custom')?.path.toLowerCase()).toBe(
+        (await fs.realpath(extra)).toLowerCase(),
+      );
+    } finally {
+      await fs.rm(extra, { recursive: true, force: true });
+    }
+  });
+
   it('lists only child directories and marks the workspace root', async () => {
     const result = await service.listDirectories(tmp);
     expect(result.isRoot).toBe(true);

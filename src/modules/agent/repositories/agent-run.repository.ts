@@ -10,23 +10,69 @@ export class AgentRunRepository {
   create(data: {
     id: string;
     sessionId: string;
+    parentRunId?: string;
+    agentId?: string;
+    traceId?: string;
     status?: string;
     triggerType?: string;
     model?: string;
     provider?: string;
     startedAt?: string;
+    metadata?: Record<string, unknown>;
   }) {
     return this.db
       .insert(agentRuns)
       .values({
         id: data.id,
         sessionId: data.sessionId,
+        parentRunId: data.parentRunId,
+        agentId: data.agentId,
+        traceId: data.traceId,
         status: data.status || 'running',
         triggerType: data.triggerType || 'http',
         model: data.model,
         provider: data.provider,
         startedAt: data.startedAt || new Date().toISOString(),
+        metadata: data.metadata,
       })
+      .returning()
+      .get();
+  }
+
+  /**
+   * Create a run row only if it does not exist yet. Sub-agent runs are first
+   * observed through the bus (run.started) and may race with another listener;
+   * idempotent insertion keeps lineage durable without double rows.
+   */
+  createIfAbsent(data: {
+    id: string;
+    sessionId: string;
+    parentRunId?: string;
+    agentId?: string;
+    traceId?: string;
+    status?: string;
+    triggerType?: string;
+    model?: string;
+    provider?: string;
+    startedAt?: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    return this.db
+      .insert(agentRuns)
+      .values({
+        id: data.id,
+        sessionId: data.sessionId,
+        parentRunId: data.parentRunId,
+        agentId: data.agentId,
+        traceId: data.traceId,
+        status: data.status || 'running',
+        triggerType: data.triggerType || 'http',
+        model: data.model,
+        provider: data.provider,
+        startedAt: data.startedAt || new Date().toISOString(),
+        metadata: data.metadata,
+      })
+      .onConflictDoNothing()
       .returning()
       .get();
   }
@@ -98,22 +144,75 @@ export class AgentRunRepository {
       .all();
   }
 
+  /** Latest interrupted run for a session (offered to the UI for Resume). */
+  findInterruptedBySessionId(sessionId: string) {
+    return this.db
+      .select()
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.sessionId, sessionId),
+          eq(agentRuns.status, 'interrupted'),
+        ),
+      )
+      .orderBy(sql`${agentRuns.startedAt} DESC`)
+      .limit(1)
+      .get();
+  }
+
   /**
-   * Boot reconciliation: a row still 'running' at startup is a crash remnant
-   * (no live run exists yet) — close it so it can't block the session or leave
-   * a permanently spinning step.
+   * Boot reconciliation: a row still 'running' at startup is a crash remnant.
+   * Mark it interrupted so it no longer blocks the session but stays resumable.
    */
-  failAllRunning(reason = 'Interrupted by restart') {
+  interruptAllRunning(reason = 'Interrupted by restart') {
     return this.db
       .update(agentRuns)
       .set({
-        status: 'failed',
+        status: 'interrupted',
         errorMessage: reason,
         stopReason: 'interrupted',
         completedAt: sql`datetime('now')`,
         durationMs: sql`CAST((julianday('now') - julianday(${agentRuns.startedAt})) * 86400000 AS INTEGER)`,
       })
       .where(eq(agentRuns.status, 'running'))
+      .run();
+  }
+
+  /** Move an interrupted run back to live before the kernel resumes it. */
+  markRunning(id: string) {
+    return this.db
+      .update(agentRuns)
+      .set({
+        status: 'running',
+        errorMessage: null,
+        stopReason: null,
+        completedAt: null,
+        durationMs: null,
+        startedAt: new Date().toISOString(),
+      })
+      .where(eq(agentRuns.id, id))
+      .run();
+  }
+
+  /** A newer run supersedes stale interrupted runs in the same session. */
+  dismissInterruptedForSession(
+    sessionId: string,
+    reason = 'Superseded by a newer run',
+  ) {
+    return this.db
+      .update(agentRuns)
+      .set({
+        status: 'cancelled',
+        errorMessage: reason,
+        stopReason: 'superseded',
+        completedAt: sql`datetime('now')`,
+      })
+      .where(
+        and(
+          eq(agentRuns.sessionId, sessionId),
+          eq(agentRuns.status, 'interrupted'),
+        ),
+      )
       .run();
   }
 

@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Logger } from '@nestjs/common';
+import type { McpGovernanceConfig } from '@vinhnt-sdk/mcp';
 
 export interface ProviderJsonConfig {
   id: string;
@@ -24,6 +25,9 @@ export interface McpServerJsonConfig {
   args: string[] | null;
   url: string | null;
   env: Record<string, string>;
+  headers?: Record<string, string> | null;
+  timeoutMs?: number | null;
+  governance?: McpGovernanceConfig | null;
   isEnabled: boolean;
   toolCount: number;
   lastConnectedAt: string | null;

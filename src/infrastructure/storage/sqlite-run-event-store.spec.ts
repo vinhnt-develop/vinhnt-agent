@@ -33,6 +33,13 @@ function makeStore() {
       updated_at TEXT DEFAULT (datetime('now')),
       deleted_at TEXT
     );
+    CREATE TABLE session_surfaces (
+      session_id TEXT NOT NULL,
+      surface_id TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT DEFAULT (datetime('now')) NOT NULL,
+      PRIMARY KEY (session_id, surface_id)
+    );
   `);
   const db = drizzle(sqlite);
   return { sqlite, store: new SqliteRunEventStore(db) };
@@ -128,6 +135,80 @@ describe('SqliteRunEventStore appendTransactional', () => {
     expect(row.title).toBe('new');
     expect(row.is_active).toBe(0);
     expect(await store.list('run_tx')).toHaveLength(1);
+  });
+});
+
+describe('SqliteRunEventStore sessions surfaces', () => {
+  it('upserts and deletes ui.surface snapshots by session', async () => {
+    const { sqlite, store } = makeStore();
+
+    await store.append({
+      ...makeEvent('run_ui'),
+      type: 'ui.surface',
+      data: {
+        sessionId: 'ses_ui',
+        surfaceId: 'revenue',
+        action: 'upsert',
+        surface: { surfaceId: 'revenue', components: [{ type: 'text', text: 'v1' }] },
+      },
+    });
+
+    let row = sqlite.prepare('SELECT payload FROM session_surfaces WHERE session_id = ? AND surface_id = ?')
+      .get('ses_ui', 'revenue') as { payload: string };
+    expect(JSON.parse(row.payload).components[0].text).toBe('v1');
+
+    await store.append({
+      ...makeEvent('run_ui'),
+      type: 'ui.surface',
+      data: {
+        sessionId: 'ses_ui',
+        surfaceId: 'revenue',
+        action: 'upsert',
+        surface: { surfaceId: 'revenue', components: [{ type: 'text', text: 'v2' }] },
+      },
+    });
+
+    row = sqlite.prepare('SELECT payload FROM session_surfaces WHERE session_id = ? AND surface_id = ?')
+      .get('ses_ui', 'revenue') as { payload: string };
+    expect(JSON.parse(row.payload).components[0].text).toBe('v2');
+    expect(
+      sqlite.prepare('SELECT count(*) AS c FROM session_surfaces').get() as { c: number },
+    ).toEqual({ c: 1 });
+
+    await store.append({
+      ...makeEvent('run_ui'),
+      type: 'ui.surface',
+      data: { sessionId: 'ses_ui', surfaceId: 'revenue', action: 'delete' },
+    });
+
+    expect(
+      sqlite.prepare('SELECT count(*) AS c FROM session_surfaces').get() as { c: number },
+    ).toEqual({ c: 0 });
+  });
+
+  it('persists ui.surface appended inside a session transaction', async () => {
+    const { sqlite, store } = makeStore();
+    sqlite.prepare('INSERT INTO sessions (id, title) VALUES (?, ?)').run('ses_tx', 'old');
+
+    await store.appendTransactional(
+      {
+        ...makeEvent('run_ui_tx'),
+        type: 'ui.surface',
+        data: {
+          sessionId: 'ses_tx',
+          surfaceId: 'summary',
+          action: 'upsert',
+          surface: { surfaceId: 'summary', components: [{ type: 'text', text: 'ok' }] },
+        },
+      },
+      { sessionId: 'ses_tx', updates: { title: 'new' } },
+    );
+
+    const row = sqlite
+      .prepare('SELECT payload FROM session_surfaces WHERE session_id = ? AND surface_id = ?')
+      .get('ses_tx', 'summary') as { payload: string };
+    expect(JSON.parse(row.payload).surfaceId).toBe('summary');
+    expect(await store.list('run_ui_tx')).toHaveLength(1);
   });
 });
 

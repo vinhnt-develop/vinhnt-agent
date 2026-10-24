@@ -1,21 +1,29 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { discoverMcpTools } from '@vinhnt-sdk/mcp';
 import { AgentSettingsService } from './agent-settings.service';
 import { AgentToolkit } from './agent-toolkit';
 import { McpServerService } from '@/modules/mcp-servers/services/mcp-server.service';
 import { CUSTOM_TOOLS_CONFIG } from '@/infrastructure/config/config.module';
 
 jest.mock('@vinhnt-sdk/tools', () => ({
-  ToolRegistry: jest.fn().mockImplementation(() => ({
-    register: jest.fn(),
-    list: jest.fn().mockReturnValue([]),
-    count: jest.fn().mockReturnValue(0),
-  })),
+  ToolRegistry: jest.fn().mockImplementation(() => {
+    const tools = new Map<string, { id: string }>();
+    return {
+      register: jest.fn((tool: { id: string }) => tools.set(tool.id, tool)),
+      unregister: jest.fn((id: string) => tools.delete(id)),
+      get: jest.fn((id: string) => tools.get(id)),
+      list: jest.fn(() => [...tools.values()]),
+      count: jest.fn(() => tools.size),
+    };
+  }),
   ToolSandbox: jest.fn(),
   InMemoryFileHistory: jest.fn().mockImplementation(() => ({})),
   FileReadTracker: jest.fn().mockImplementation(() => ({})),
   createReadFileTool: jest.fn().mockReturnValue({ id: 'read_file' }),
+  createReadImageTool: jest.fn().mockReturnValue({ id: 'read_image' }),
   createWriteFileTool: jest.fn().mockReturnValue({ id: 'write_file' }),
   createEditFileTool: jest.fn().mockReturnValue({ id: 'edit_file' }),
+  createApplyPatchTool: jest.fn().mockReturnValue({ id: 'apply_patch' }),
   createListDirectoryTool: jest.fn().mockReturnValue({ id: 'list_directory' }),
   createGlobFilesTool: jest.fn().mockReturnValue({ id: 'glob_files' }),
   createGrepFilesTool: jest.fn().mockReturnValue({ id: 'grep_files' }),
@@ -23,6 +31,7 @@ jest.mock('@vinhnt-sdk/tools', () => ({
   createGitStatusTool: jest.fn().mockReturnValue({ id: 'git_status' }),
   createGitDiffTool: jest.fn().mockReturnValue({ id: 'git_diff' }),
   createGitLogTool: jest.fn().mockReturnValue({ id: 'git_log' }),
+  createGitCommitTool: jest.fn().mockReturnValue({ id: 'git_commit' }),
   createWebFetchTool: jest.fn().mockReturnValue({ id: 'web_fetch' }),
   createWebSearchTool: jest.fn().mockReturnValue({ id: 'web_search' }),
   createTodoWriteTool: jest.fn().mockReturnValue({ id: 'todowrite' }),
@@ -120,6 +129,7 @@ jest.mock('@vinhnt-sdk/lsp', () => ({
 describe('AgentToolkit', () => {
   let toolkit: AgentToolkit;
   let settingsMock: { getSettings: jest.Mock };
+  let mcpServiceMock: { findEnabled: jest.Mock };
 
   beforeEach(async () => {
     settingsMock = {
@@ -127,6 +137,7 @@ describe('AgentToolkit', () => {
         workspaceRoot: '.',
       })),
     };
+    mcpServiceMock = { findEnabled: jest.fn().mockResolvedValue([]) };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentToolkit,
@@ -137,7 +148,7 @@ describe('AgentToolkit', () => {
         },
         {
           provide: McpServerService,
-          useValue: { findEnabled: jest.fn().mockResolvedValue([]) },
+          useValue: mcpServiceMock,
         },
         { provide: CUSTOM_TOOLS_CONFIG, useValue: null },
       ],
@@ -148,6 +159,74 @@ describe('AgentToolkit', () => {
 
   it('should be defined', () => {
     expect(toolkit).toBeDefined();
+  });
+
+  it('forwards stored MCP connection and governance config', async () => {
+    const governance = {
+      allowedTools: ['read_file'],
+      deniedTools: ['delete_file'],
+      maxOutputBytes: 65_536,
+      spillDir: 'C:/tmp/mcp-spill',
+      searchThreshold: 25,
+    };
+    mcpServiceMock.findEnabled.mockResolvedValue([
+      {
+        id: 'mcp-1',
+        name: 'remote',
+        transport: 'streamable-http',
+        command: null,
+        args: null,
+        url: 'http://localhost:3001/mcp',
+        env: {},
+        headers: { Authorization: 'Bearer test' },
+        timeoutMs: 45_000,
+        governance,
+        isEnabled: true,
+        toolCount: 0,
+        lastConnectedAt: null,
+        createdAt: '2026-10-23T00:00:00.000Z',
+        updatedAt: '2026-10-23T00:00:00.000Z',
+      },
+    ]);
+
+    await toolkit.connectMcpServersFromDb();
+
+    const client = toolkit.getMcpClient() as unknown as {
+      connect: jest.Mock;
+    };
+    expect(client.connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'remote',
+        headers: { Authorization: 'Bearer test' },
+        timeoutMs: 45_000,
+        governance,
+      }),
+    );
+    expect(discoverMcpTools).toHaveBeenCalledWith('remote', undefined, {
+      governance,
+    });
+  });
+
+  it('unregisters MCP tools when disconnecting a server', async () => {
+    (discoverMcpTools as jest.Mock).mockResolvedValueOnce([
+      {
+        id: 'mcp__remote__alpha',
+        name: 'mcp__remote__alpha',
+        description: 'alpha',
+        inputSchema: { type: 'object' },
+      },
+    ]);
+
+    await toolkit.connectMcpServer({
+      name: 'remote',
+      transport: 'streamable-http',
+    } as Parameters<AgentToolkit['connectMcpServer']>[0]);
+
+    expect(toolkit.getToolRegistry().get('mcp__remote__alpha')).toBeDefined();
+
+    await toolkit.disconnectMcpServer('remote');
+
+    expect(toolkit.getToolRegistry().get('mcp__remote__alpha')).toBeUndefined();
   });
 
   describe('Tools', () => {
@@ -167,6 +246,21 @@ describe('AgentToolkit', () => {
       const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
       expect(ids).toContain('update_plan');
       expect(ids).toContain('get_plan');
+    });
+
+    it('registers apply_patch and git_commit coding tools', () => {
+      toolkit.initializeTools('/test/root');
+      const registry = toolkit.getToolRegistry() as unknown as { register: jest.Mock };
+      const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
+      expect(ids).toContain('apply_patch');
+      expect(ids).toContain('git_commit');
+    });
+
+    it('VNT-208: registers read_image as a system tool', () => {
+      toolkit.initializeTools('/test/root');
+      const registry = toolkit.getToolRegistry() as unknown as { register: jest.Mock };
+      const ids = registry.register.mock.calls.map((c) => (c[0] as { id: string }).id);
+      expect(ids).toContain('read_image');
     });
 
     it('Phase 1: registers the question tool and exposes its store', () => {

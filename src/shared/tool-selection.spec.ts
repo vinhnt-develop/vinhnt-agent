@@ -1,4 +1,7 @@
+import { createDelegateBatchTool } from '@vinhnt-sdk/core';
 import {
+  KERNEL_ONLY_SYSTEM_TOOL_IDS,
+  collectHandoffToolIds,
   isSelectableToolSource,
   resolveSystemToolIds,
   withSystemTools,
@@ -30,12 +33,63 @@ describe('resolveSystemToolIds', () => {
       { id: 'custom_deploy', metadata: { source: 'custom' } },
       { id: 'mcp__slack', metadata: { source: 'mcp' } },
     ]);
-    expect(ids).toEqual(['read_file', 'write_file', 'memory_search']);
+    expect(ids).toEqual([
+      'read_file',
+      'write_file',
+      'memory_search',
+      'spawn_agent',
+      'delegate',
+      'delegate_batch',
+      'create_agent',
+      'list_agents',
+    ]);
+  });
+
+  it('keeps delegate_batch when the selection only contains a custom tool', () => {
+    const systemIds = resolveSystemToolIds(
+      [{ id: 'custom_deploy', metadata: { source: 'custom' } }],
+      KERNEL_ONLY_SYSTEM_TOOL_IDS,
+    );
+    const result = withSystemTools(
+      { tools: [{ id: 'custom_deploy', name: 'deploy', enabled: true }] },
+      systemIds,
+    );
+
+    expect(result?.tools?.map((tool) => tool.id)).toEqual(
+      expect.arrayContaining(['custom_deploy', 'delegate_batch']),
+    );
+    expect(result?.tools).toContainEqual({ id: 'delegate_batch', enabled: true });
+  });
+
+  it('registers a kernel tool definition named delegate_batch', () => {
+    const definition = createDelegateBatchTool({} as never);
+
+    expect(definition.id ?? definition.name).toBe('delegate_batch');
+  });
+
+  it('appends caller-provided handoff ids', () => {
+    const ids = resolveSystemToolIds([{ id: 'read_file' }], [
+      ...['memory_search'],
+      ...collectHandoffToolIds(['code-reviewer', undefined, 'writer']),
+    ]);
+
+    expect(ids).toContain('transfer_to_code-reviewer');
+    expect(ids).toContain('transfer_to_writer');
+    expect(ids.filter((id) => id.startsWith('transfer_to_'))).toHaveLength(2);
   });
 
   it('does not duplicate memory_search when already in defs', () => {
     const ids = resolveSystemToolIds([{ id: 'memory_search' }]);
     expect(ids.filter((id) => id === 'memory_search')).toHaveLength(1);
+  });
+});
+
+describe('collectHandoffToolIds', () => {
+  it('derives one tool id per registered agent and skips empty ids', () => {
+    expect(collectHandoffToolIds(['code-reviewer', '', undefined, 'writer'])).toEqual([
+      'transfer_to_code-reviewer',
+      'transfer_to_writer',
+    ]);
   });
 });
 

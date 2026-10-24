@@ -46,6 +46,25 @@ describe('withElicitationDeadline', () => {
     jest.useRealTimers();
   });
 
+  it('resolves a live timeout callback at execute time', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-01-01T00:00:00Z'));
+    const ask = jest.fn().mockResolvedValue({ action: 'accept' });
+    const { tool, ctx } = toolWithAsk(ask);
+    let timeout = 10_000;
+
+    const wrapped = withElicitationDeadline(tool, () => timeout);
+    timeout = 45_000;
+    await wrapped.execute({}, ctx);
+
+    expect(ask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expiresAt: Date.now() + 45_000,
+        timeoutMs: 45_000,
+      }),
+    );
+    jest.useRealTimers();
+  });
+
   it('passes the context through unchanged when no host store is wired', async () => {
     const tool = {
       id: 'elicit',

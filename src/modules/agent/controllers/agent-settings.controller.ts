@@ -1,7 +1,7 @@
 import { Controller, Get, Put, Body, Post } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AgentSettingsService } from '../services/agent-settings.service';
-import type { KernelSettings } from '../services/agent-settings.service';
+import type { KernelSettings, OpsStatus } from '../services/agent-settings.service';
 import { UpdateKernelSettingsDto } from '../dto';
 
 @ApiTags('Agent Settings')
@@ -25,5 +25,11 @@ export class AgentSettingsController {
   @ApiOperation({ summary: 'Reset kernel settings to defaults' })
   resetKernelSettings(): KernelSettings {
     return this.settingsService.resetSettings();
+  }
+
+  @Get('ops')
+  @ApiOperation({ summary: 'Get read-only ops/config status (no secrets)' })
+  getOpsStatus(): OpsStatus {
+    return this.settingsService.getOpsStatus();
   }
 }

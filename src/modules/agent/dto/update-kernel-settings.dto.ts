@@ -7,6 +7,7 @@ import {
   IsIn,
   IsArray,
   IsObject,
+  ArrayMaxSize,
   MaxLength,
   Min,
   Max,
@@ -16,6 +17,8 @@ import type { PermissionMode } from '@/shared/permission-mode';
 import {
   APPROVAL_TIMEOUT_MS_MIN,
   APPROVAL_TIMEOUT_MS_MAX,
+  ELICIT_TIMEOUT_MS_MIN,
+  ELICIT_TIMEOUT_MS_MAX,
   MAX_KERNEL_CACHE_SIZE_MIN,
 } from '../services/agent-settings.service';
 
@@ -186,6 +189,36 @@ export class UpdateKernelSettingsDto {
   @IsOptional()
   @IsObject()
   permissionRiskDefaults?: Record<string, string>;
+
+  // ── Agent runtime ──────────────────────────────────────────────────────
+
+  /** Extra directories exposed by the file browser (env seed: AGENT_BROWSE_ROOTS). */
+  @ApiPropertyOptional({ example: ['D:/projects'], type: [String] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(32)
+  @IsString({ each: true })
+  @MaxLength(1024, { each: true })
+  browseRoots?: string[];
+
+  /** Home shortcut override; '' = OS home (env seed: AGENT_BROWSE_HOME). */
+  @ApiPropertyOptional({ example: '', maxLength: 1024 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1024)
+  browseHome?: string;
+
+  /** Elicitation deadline (ms); env seed: AGENT_ELICIT_TIMEOUT_MS. */
+  @ApiPropertyOptional({
+    example: 300000,
+    minimum: ELICIT_TIMEOUT_MS_MIN,
+    maximum: ELICIT_TIMEOUT_MS_MAX,
+  })
+  @IsOptional()
+  @IsNumber()
+  @Min(ELICIT_TIMEOUT_MS_MIN)
+  @Max(ELICIT_TIMEOUT_MS_MAX)
+  elicitTimeoutMs?: number;
 
   // ── Behavior ───────────────────────────────────────────────────────────
 

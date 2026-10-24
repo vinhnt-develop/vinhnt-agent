@@ -19,6 +19,7 @@ import {
 } from '@nestjs/swagger';
 import { ApiDataResponse } from '@/common/decorators';
 import { formatResponse } from '@/common/helpers';
+import { PaginationDto } from '@/common/dto/pagination.dto';
 import type { ApiResponse } from '@/common/interfaces';
 import { SessionService } from '../services/session.service';
 import { TrajectoryService } from '../services/trajectory.service';
@@ -31,6 +32,9 @@ import {
   TrajectoryResponseDto,
   ListSessionsDto,
   ListMessagesDto,
+  ForkSessionDto,
+  ForkSessionResponseDto,
+  SessionSummaryResponseDto,
 } from '../dto';
 
 @ApiTags('Session')
@@ -41,6 +45,9 @@ import {
   SessionResponseDto,
   MessageResponseDto,
   TrajectoryResponseDto,
+  ForkSessionDto,
+  ForkSessionResponseDto,
+  SessionSummaryResponseDto,
 )
 @Controller({ path: 'sessions', version: '1' })
 export class SessionController {
@@ -80,6 +87,60 @@ export class SessionController {
       SessionResponseDto,
       session,
       'Session retrieved successfully.',
+    );
+  }
+
+  @Get(':id/summary')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get compact session summary' })
+  @ApiParam({ name: 'id', type: 'string' })
+  @ApiDataResponse(SessionSummaryResponseDto)
+  async getSummary(
+    @Param('id') id: string,
+  ): Promise<ApiResponse<SessionSummaryResponseDto>> {
+    const summary = await this.sessionService.getSummary(id);
+    return formatResponse.single(
+      SessionSummaryResponseDto,
+      summary,
+      'Session summary retrieved successfully.',
+    );
+  }
+
+  @Get(':id/forks')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'List child sessions forked from this session' })
+  @ApiParam({ name: 'id', type: 'string' })
+  @ApiDataResponse(SessionResponseDto, { isArray: true, withMeta: true })
+  async findForks(
+    @Param('id') id: string,
+    @Query() query: PaginationDto,
+  ): Promise<ApiResponse<SessionResponseDto[]>> {
+    const { data, total, page, limit } = await this.sessionService.findForks(id, query);
+    return formatResponse.paginate(
+      SessionResponseDto,
+      data,
+      'Session forks retrieved successfully.',
+      page,
+      limit,
+      total,
+    );
+  }
+
+  @Post(':id/fork')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Fork a session without mutating the source' })
+  @ApiParam({ name: 'id', type: 'string' })
+  @ApiBody({ type: ForkSessionDto })
+  @ApiDataResponse(ForkSessionResponseDto)
+  async fork(
+    @Param('id') id: string,
+    @Body() dto: ForkSessionDto,
+  ): Promise<ApiResponse<ForkSessionResponseDto>> {
+    const result = await this.sessionService.fork(id, dto);
+    return formatResponse.single(
+      ForkSessionResponseDto,
+      result,
+      'Session forked successfully.',
     );
   }
 

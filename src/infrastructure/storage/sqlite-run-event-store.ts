@@ -1,8 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { DATABASE_CONNECTION } from '@/infrastructure/database/database-connection';
 import { runEvents } from '@/modules/agent/schemas/agent.schema';
-import { sessions } from '@/modules/session/schemas/session.schema';
-import { eq, sql, desc } from 'drizzle-orm';
+import { sessions, sessionSurfaces } from '@/modules/session/schemas/session.schema';
+import { eq, and, sql, desc } from 'drizzle-orm';
 import type { RunEventStore, RunEvent, RunEventSnapshot, RunEventListener, RunId, TraceId, SessionUpdates } from '@vinhnt-sdk/schema';
 import { v4 as uuid } from 'uuid';
 
@@ -43,6 +43,44 @@ export class SqliteRunEventStore implements RunEventStore {
         data: event.data,
         traceId: event.traceId,
         occurredAt: event.occurredAt,
+      })
+      .run();
+    this.persistSurfaceInTx(tx, event);
+  }
+
+  private persistSurfaceInTx(tx: any, event: PersistableEvent): void {
+    if (event.type !== 'ui.surface') return;
+    const data = (event.data ?? {}) as {
+      sessionId?: string;
+      surfaceId?: string;
+      action?: 'upsert' | 'delete';
+      surface?: unknown;
+    };
+    if (!data.sessionId || !data.surfaceId) return;
+
+    if (data.action === 'delete' || !data.surface) {
+      tx.delete(sessionSurfaces)
+        .where(and(
+          eq(sessionSurfaces.sessionId, data.sessionId),
+          eq(sessionSurfaces.surfaceId, data.surfaceId),
+        ))
+        .run();
+      return;
+    }
+
+    tx.insert(sessionSurfaces)
+      .values({
+        sessionId: data.sessionId,
+        surfaceId: data.surfaceId,
+        payload: data.surface,
+        updatedAt: new Date().toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: [sessionSurfaces.sessionId, sessionSurfaces.surfaceId],
+        set: {
+          payload: data.surface,
+          updatedAt: new Date().toISOString(),
+        },
       })
       .run();
   }

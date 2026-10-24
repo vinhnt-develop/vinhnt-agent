@@ -1,7 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { DATABASE_CONNECTION, type DatabaseConnection } from '@/infrastructure/database';
 import { workspaces } from '../schemas/workspace.schema';
-import { eq, sql, desc } from 'drizzle-orm';
+import { projects } from '@/modules/project/schemas/project.schema';
+import { sessions } from '@/modules/session/schemas/session.schema';
+import { eq, sql, desc, inArray } from 'drizzle-orm';
 import { v4 as uuid } from 'uuid';
 import { PaginationDto } from '@/common/dto/pagination.dto';
 
@@ -78,8 +80,38 @@ export class WorkspaceRepository {
     return this.findById(id);
   }
 
-  async softDelete(id: string) {
-    this.db.update(workspaces).set({ deletedAt: new Date().toISOString() }).where(eq(workspaces.id, id)).run();
+  /**
+   * Soft-delete a workspace and every project/session beneath it in one
+   * transaction. Without the cascade, deleting a workspace left its children
+   * visible through project/session APIs and the UI could still open them.
+   */
+  async softDeleteCascade(id: string) {
+    const now = new Date().toISOString();
+    this.db.transaction((tx) => {
+      const projectIds = tx
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.workspaceId, id))
+        .all()
+        .map((row) => row.id);
+
+      if (projectIds.length > 0) {
+        tx.update(sessions)
+          .set({ deletedAt: now, isActive: false })
+          .where(inArray(sessions.projectId, projectIds))
+          .run();
+      }
+
+      tx.update(projects)
+        .set({ deletedAt: now, isActive: false })
+        .where(eq(projects.workspaceId, id))
+        .run();
+
+      tx.update(workspaces)
+        .set({ deletedAt: now, isActive: false, updatedAt: now })
+        .where(eq(workspaces.id, id))
+        .run();
+    });
   }
 
   async setActive(id: string, ownerId: string) {

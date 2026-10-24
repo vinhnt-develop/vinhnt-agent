@@ -28,6 +28,7 @@ export interface TrajectoryTurn {
   startedAt?: string;
   completedAt?: string;
   parentRunId?: string;
+  subAgent?: Record<string, unknown>;
   steps: TrajectoryStep[];
   messages: TrajectoryMessage[];
   contextCompressed?: {
@@ -327,7 +328,10 @@ export class TrajectoryService {
         errorMessage: run.errorMessage,
         startedAt: run.startedAt,
         completedAt: run.completedAt,
-        parentRunId: run.metadata?.parentRunId,
+        parentRunId: run.parentRunId ?? run.metadata?.parentRunId,
+        subAgent: (run.metadata as Record<string, unknown> | undefined)?.subAgent as
+          | Record<string, unknown>
+          | undefined,
         steps,
         messages: this.mapMessagesToRun(runMessages),
         contextCompressed,

@@ -34,6 +34,10 @@ export const agentConfig = registerAs('agent', () => ({
   // Approval wait timeout — independent of stale-run threshold (5 min).
   // Unanswered dialog fails the tool after this window (default 2 min).
   approvalTimeoutMs: parseInt(process.env.AGENT_APPROVAL_TIMEOUT_MS || '120000', 10),
+  // VNT-322: env seeds for the editable Agent runtime settings.
+  browseRoots: process.env.AGENT_BROWSE_ROOTS || '',
+  browseHome: process.env.AGENT_BROWSE_HOME || '',
+  elicitTimeoutMs: process.env.AGENT_ELICIT_TIMEOUT_MS || '',
   maxKernelCacheSize: parseInt(process.env.AGENT_MAX_KERNEL_CACHE_SIZE || '50', 10),
   globalPermissionRules: safeJsonParse<Record<string, string | Record<string, string>> | undefined>(
     process.env.AGENT_PERMISSION_RULES,

@@ -1,6 +1,76 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsIn, IsObject, IsArray } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsBoolean,
+  IsIn,
+  IsObject,
+  IsArray,
+  IsInt,
+  Min,
+  Max,
+  ValidateNested,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Expose } from 'class-transformer';
+import { Expose, Type } from 'class-transformer';
+
+export class McpGovernanceDto {
+  @ApiPropertyOptional({
+    description: 'Raw MCP tool names to expose; empty array exposes none',
+    name: 'allowedTools',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Expose({ name: 'allowedTools' })
+  allowedTools?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Raw MCP tool names to remove after the allowlist',
+    name: 'deniedTools',
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @Expose({ name: 'deniedTools' })
+  deniedTools?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Text output cap in bytes before spilling; 0 disables',
+    minimum: 0,
+    name: 'maxOutputBytes',
+    type: Number,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Expose({ name: 'maxOutputBytes' })
+  maxOutputBytes?: number;
+
+  @ApiPropertyOptional({
+    description: 'Directory for spilled output; defaults to the OS temp dir',
+    name: 'spillDir',
+    type: String,
+  })
+  @IsOptional()
+  @IsString()
+  @Expose({ name: 'spillDir' })
+  spillDir?: string;
+
+  @ApiPropertyOptional({
+    description: 'Expose tool search when the filtered catalog reaches this size',
+    minimum: 1,
+    name: 'searchThreshold',
+    type: Number,
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Expose({ name: 'searchThreshold' })
+  searchThreshold?: number;
+}
 
 export class CreateMcpServerDto {
   @ApiProperty({ description: 'Server name', example: 'filesystem', name: 'name', type: String })
@@ -39,6 +109,27 @@ export class CreateMcpServerDto {
   @IsObject()
   @Expose({ name: 'env' })
   env?: Record<string, string>;
+
+  @ApiPropertyOptional({ description: 'HTTP headers for SSE/HTTP transport', name: 'headers', type: 'object', additionalProperties: true })
+  @IsOptional()
+  @IsObject()
+  @Expose({ name: 'headers' })
+  headers?: Record<string, string>;
+
+  @ApiPropertyOptional({ description: 'Connection and request timeout in milliseconds', default: 30000, minimum: 1000, maximum: 300000, name: 'timeoutMs', type: Number })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(300000)
+  @Expose({ name: 'timeoutMs' })
+  timeoutMs?: number;
+
+  @ApiPropertyOptional({ description: 'Per-server tool/output governance', name: 'governance', type: McpGovernanceDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => McpGovernanceDto)
+  @Expose({ name: 'governance' })
+  governance?: McpGovernanceDto;
 
   @ApiPropertyOptional({ description: 'Is enabled', default: true, name: 'isEnabled', type: Boolean })
   @IsOptional()
@@ -85,6 +176,27 @@ export class UpdateMcpServerDto {
   @Expose({ name: 'env' })
   env?: Record<string, string>;
 
+  @ApiPropertyOptional({ description: 'HTTP headers for SSE/HTTP transport', name: 'headers', type: 'object', additionalProperties: true })
+  @IsOptional()
+  @IsObject()
+  @Expose({ name: 'headers' })
+  headers?: Record<string, string>;
+
+  @ApiPropertyOptional({ description: 'Connection and request timeout in milliseconds', minimum: 1000, maximum: 300000, name: 'timeoutMs', type: Number })
+  @IsOptional()
+  @IsInt()
+  @Min(1000)
+  @Max(300000)
+  @Expose({ name: 'timeoutMs' })
+  timeoutMs?: number;
+
+  @ApiPropertyOptional({ description: 'Per-server tool/output governance; null clears it', name: 'governance', type: McpGovernanceDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => McpGovernanceDto)
+  @Expose({ name: 'governance' })
+  governance?: McpGovernanceDto | null;
+
   @ApiPropertyOptional({ description: 'Is enabled', name: 'isEnabled', type: Boolean })
   @IsOptional()
   @IsBoolean()
@@ -120,6 +232,19 @@ export class McpServerResponseDto {
   @ApiPropertyOptional({ description: 'Environment variables', name: 'env', type: 'object', additionalProperties: true })
   @Expose({ name: 'env' })
   env?: Record<string, string>;
+
+  @ApiPropertyOptional({ description: 'HTTP headers for SSE/HTTP transport', name: 'headers', type: 'object', additionalProperties: true })
+  @Expose({ name: 'headers' })
+  headers?: Record<string, string>;
+
+  @ApiPropertyOptional({ description: 'Connection and request timeout in milliseconds', name: 'timeoutMs', type: Number })
+  @Expose({ name: 'timeoutMs' })
+  timeoutMs?: number;
+
+  @ApiPropertyOptional({ description: 'Per-server tool/output governance', name: 'governance', type: McpGovernanceDto })
+  @Type(() => McpGovernanceDto)
+  @Expose({ name: 'governance' })
+  governance?: McpGovernanceDto;
 
   @ApiProperty({ description: 'Is enabled', example: true, name: 'isEnabled', type: Boolean })
   @Expose({ name: 'isEnabled' })

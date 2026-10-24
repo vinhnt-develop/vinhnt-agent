@@ -11,9 +11,11 @@ import {
   AgentToolkit,
   AgentSettingsService,
   AgentOtlpService,
+  AttachmentService,
 } from './services';
 import { AgentRunTrackingService } from './services/agent-run-tracking.service';
 import { AgentRunRepository } from './repositories/agent-run.repository';
+import { HitlRequestRepository } from './repositories/hitl-request.repository';
 import { ToolExecutionRepository } from './repositories/tool-execution.repository';
 import { AgentGateway } from './controllers/agent.gateway';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
@@ -33,9 +35,11 @@ import { SessionRepository } from '@/modules/session/repositories/session.reposi
     AgentToolkit,
     AgentSettingsService,
     AgentOtlpService,
+    AttachmentService,
     AgentGateway,
     AgentRunTrackingService,
     AgentRunRepository,
+    HitlRequestRepository,
     ToolExecutionRepository,
     SessionRepository,
   ],

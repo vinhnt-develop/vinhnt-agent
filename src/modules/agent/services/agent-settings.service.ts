@@ -5,12 +5,39 @@ import * as path from 'path';
 import { KNOWN_PERMISSION_MODES } from '@/shared/permission-mode';
 import type { PermissionMode } from '@/shared/permission-mode';
 import { KernelSettingsStore } from '@/shared/kernel-settings.store';
+import { DEFAULT_ELICIT_TIMEOUT_MS, resolveElicitTimeoutMs } from './elicit-deadline';
 
 /** SC1: approval dialog wait window bounds (also enforced by the DTO). */
 export const APPROVAL_TIMEOUT_MS_MIN = 1000;
 export const APPROVAL_TIMEOUT_MS_MAX = 600000;
+/** Elicitation deadline bounds (also enforced by the DTO). */
+export const ELICIT_TIMEOUT_MS_MIN = 1000;
+export const ELICIT_TIMEOUT_MS_MAX = 3_600_000;
 /** SC1: kernel LRU capacity bounds (lower bound only — no natural cap). */
 export const MAX_KERNEL_CACHE_SIZE_MIN = 1;
+
+/** VNT-323: safe, read-only runtime facts — never raw env values for secrets. */
+export interface OpsStatus {
+  runtime: { nodeEnv: string; configDir: string };
+  server: {
+    host: string;
+    port: string;
+    apiPrefix: string;
+    corsOrigin: string;
+  };
+  database: {
+    configured: boolean;
+    driver: 'sqlite' | 'postgres' | 'other' | 'none';
+    target: string;
+  };
+  auth: { secretConfigured: boolean };
+  sync: {
+    enabled: boolean;
+    apiUrlConfigured: boolean;
+    apiKeyConfigured: boolean;
+    consumers: 'none';
+  };
+}
 
 export interface KernelSettings {
   // LLM Settings
@@ -51,6 +78,12 @@ export interface KernelSettings {
   workspaceRoot: string;
   /** Unanswered approval dialog fails the tool after this window (ms). */
   approvalTimeoutMs: number;
+  /** Extra directories the file browser may traverse (env seed, hot-applied). */
+  browseRoots: string[];
+  /** Home shortcut override; '' = OS home (env seed, hot-applied). */
+  browseHome: string;
+  /** Elicitation deadline in ms (env seed, hot-applied via the elicit tool). */
+  elicitTimeoutMs: number;
   /** Kernel LRU cache capacity — read dynamically at evict, no restart (SC3). */
   maxKernelCacheSize: number;
   /** OpenCode-style permission rules; same shape as AGENT_PERMISSION_RULES. */
@@ -117,6 +150,9 @@ export const DEFAULT_SETTINGS: KernelSettings = {
   autoApproval: true,
   workspaceRoot: '.',
   approvalTimeoutMs: 120000,
+  browseRoots: [],
+  browseHome: '',
+  elicitTimeoutMs: DEFAULT_ELICIT_TIMEOUT_MS,
   maxKernelCacheSize: 50,
   globalPermissionRules: {},
   permissionRiskDefaults: {},
@@ -170,6 +206,13 @@ export class AgentSettingsService {
         autoApproval: this.configService.get<boolean>('agent.autoApproval', DEFAULT_SETTINGS.autoApproval),
         workspaceRoot: this.configService.get<string>('agent.workspaceRoot', DEFAULT_SETTINGS.workspaceRoot),
         approvalTimeoutMs: this.configService.get<number>('agent.approvalTimeoutMs', DEFAULT_SETTINGS.approvalTimeoutMs),
+        browseRoots: AgentSettingsService.parseBrowseRoots(
+          this.configService.get<string | string[]>('agent.browseRoots', DEFAULT_SETTINGS.browseRoots),
+        ),
+        browseHome: this.configService.get<string>('agent.browseHome', DEFAULT_SETTINGS.browseHome),
+        elicitTimeoutMs: resolveElicitTimeoutMs(
+          String(this.configService.get<string | number>('agent.elicitTimeoutMs', '') ?? ''),
+        ),
         maxKernelCacheSize: this.configService.get<number>('agent.maxKernelCacheSize', DEFAULT_SETTINGS.maxKernelCacheSize),
         globalPermissionRules:
           this.configService.get<Record<string, string | Record<string, string>>>('agent.globalPermissionRules') ??
@@ -274,6 +317,50 @@ export class AgentSettingsService {
     return value as Record<string, string>;
   }
 
+  /** Redact credentials from DATABASE_URL before returning it to the client. */
+  private static summarizeDatabase(url: string): OpsStatus['database'] {
+    if (!url) return { configured: false, driver: 'none', target: '' };
+    if (url.startsWith('file:') || !url.includes('://')) {
+      return {
+        configured: true,
+        driver: 'sqlite',
+        target: url.replace(/^file:/, ''),
+      };
+    }
+    try {
+      const parsed = new URL(url);
+      const driver = parsed.protocol === 'postgres:' || parsed.protocol === 'postgresql:'
+        ? 'postgres'
+        : 'other';
+      const db = parsed.pathname.replace(/^\//, '');
+      return {
+        configured: true,
+        driver,
+        target: `${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}${db ? `/${db}` : ''}`,
+      };
+    } catch {
+      return { configured: true, driver: 'other', target: 'configured' };
+    }
+  }
+
+  /** Split env (`;`/`,` on Windows) or saved arrays; trim + drop blanks/dupes. */
+  private static parseBrowseRoots(value: string | string[] | undefined): string[] {
+    const parts = Array.isArray(value)
+      ? value
+      : (value ?? '')
+          .split(path.delimiter)
+          .flatMap((part) => part.split(','));
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const part of parts) {
+      const root = typeof part === 'string' ? part.trim() : '';
+      if (!root || seen.has(root)) continue;
+      seen.add(root);
+      out.push(root);
+    }
+    return out;
+  }
+
   /**
    * SC1: validate the 6 SC fields in place (mutates, returns the object so it
    * can wrap a spread literal). Invalid values fall back to the literal
@@ -297,6 +384,27 @@ export class AgentSettingsService {
     ) {
       s.approvalTimeoutMs = DEFAULT_SETTINGS.approvalTimeoutMs;
       warn('approvalTimeoutMs');
+    }
+    if (!Array.isArray(s.browseRoots) || s.browseRoots.some((root) => typeof root !== 'string')) {
+      s.browseRoots = DEFAULT_SETTINGS.browseRoots;
+      warn('browseRoots');
+    } else {
+      s.browseRoots = AgentSettingsService.parseBrowseRoots(s.browseRoots);
+    }
+    if (typeof s.browseHome !== 'string') {
+      s.browseHome = DEFAULT_SETTINGS.browseHome;
+      warn('browseHome');
+    } else {
+      s.browseHome = s.browseHome.trim();
+    }
+    if (
+      typeof s.elicitTimeoutMs !== 'number' ||
+      !Number.isFinite(s.elicitTimeoutMs) ||
+      s.elicitTimeoutMs < ELICIT_TIMEOUT_MS_MIN ||
+      s.elicitTimeoutMs > ELICIT_TIMEOUT_MS_MAX
+    ) {
+      s.elicitTimeoutMs = DEFAULT_SETTINGS.elicitTimeoutMs;
+      warn('elicitTimeoutMs');
     }
     if (
       typeof s.maxKernelCacheSize !== 'number' ||
@@ -347,11 +455,40 @@ export class AgentSettingsService {
   private syncStore(): void {
     if (this.settingsStore) {
       this.settingsStore.setWorkspaceRoot(this.settings.workspaceRoot);
+      this.settingsStore.setBrowseRoots(this.settings.browseRoots);
+      this.settingsStore.setBrowseHome(this.settings.browseHome);
     }
   }
 
   getSettings(): KernelSettings {
     return { ...this.settings, compactionThreshold: AgentSettingsService.normalizeThreshold(this.settings.compactionThreshold) };
+  }
+
+  /** VNT-323: safe ops snapshot for Settings → System (no secret values). */
+  getOpsStatus(): OpsStatus {
+    const env = (key: string): string => String(this.configService.get<string>(key) ?? '');
+    return {
+      runtime: {
+        nodeEnv: env('NODE_ENV') || 'development',
+        configDir:
+          env('CONFIG_DIR') || path.join(process.cwd(), 'config'),
+      },
+      server: {
+        host: env('APP_HOST') || '127.0.0.1',
+        port: env('APP_PORT') || '8080',
+        apiPrefix: env('APP_API_PREFIX') || 'api',
+        corsOrigin: env('APP_CORS_ORIGIN') || 'http://localhost:2026',
+      },
+      database: AgentSettingsService.summarizeDatabase(env('DATABASE_URL')),
+      auth: { secretConfigured: Boolean(env('AUTH_SECRET')) },
+      sync: {
+        enabled: env('SYNC_ENABLED').toLowerCase() === 'true',
+        apiUrlConfigured: Boolean(env('SYNC_API_URL')),
+        apiKeyConfigured: Boolean(env('SYNC_API_KEY')),
+        // Verified 2026-10-23: no SYNC_* consumer in agent/api/webui.
+        consumers: 'none',
+      },
+    };
   }
 
   updateSettings(partial: Partial<KernelSettings>): KernelSettings {
@@ -450,6 +587,30 @@ export class AgentSettingsService {
         t > APPROVAL_TIMEOUT_MS_MAX
       ) {
         delete next.approvalTimeoutMs;
+      }
+    }
+    if (next.browseRoots !== undefined) {
+      const roots = next.browseRoots;
+      if (!Array.isArray(roots) || roots.some((root) => typeof root !== 'string')) {
+        delete next.browseRoots;
+      } else {
+        next.browseRoots = AgentSettingsService.parseBrowseRoots(roots);
+      }
+    }
+    if (next.browseHome !== undefined && typeof next.browseHome !== 'string') {
+      delete next.browseHome;
+    } else if (next.browseHome !== undefined) {
+      next.browseHome = next.browseHome.trim();
+    }
+    if (next.elicitTimeoutMs !== undefined) {
+      const t = next.elicitTimeoutMs;
+      if (
+        typeof t !== 'number' ||
+        !Number.isFinite(t) ||
+        t < ELICIT_TIMEOUT_MS_MIN ||
+        t > ELICIT_TIMEOUT_MS_MAX
+      ) {
+        delete next.elicitTimeoutMs;
       }
     }
     if (next.maxKernelCacheSize !== undefined) {

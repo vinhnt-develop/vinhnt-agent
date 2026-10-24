@@ -1,4 +1,4 @@
-import { AgentService } from './agent.service';
+﻿import { AgentService } from './agent.service';
 import type { KernelSettings } from './agent-settings.service';
 import type { PermissionMode } from '@/shared/permission-mode';
 
@@ -42,7 +42,7 @@ function resolve(
 }
 
 describe('SC3 resolvePermissionMode (2-layer autoApproval)', () => {
-  it('L2 env kill: AGENT_AUTO_APPROVAL=false → ask even with settings true + override full', () => {
+  it('L2 env kill: AGENT_AUTO_APPROVAL=false â†’ ask even with settings true + override full', () => {
     const svc = makeAgentService({
       envAutoApproval: false,
       liveSettings: { autoApproval: true, permissionMode: 'full' },
@@ -55,7 +55,7 @@ describe('SC3 resolvePermissionMode (2-layer autoApproval)', () => {
     expect(resolve(svc, undefined, 'edit')).toBe('ask');
   });
 
-  it('L1 settings: autoApproval false → ask despite override full', () => {
+  it('L1 settings: autoApproval false â†’ ask despite override full', () => {
     const svc = makeAgentService({ envAutoApproval: true });
     expect(resolve(svc, { autoApproval: false, permissionMode: 'full' }, 'full')).toBe('ask');
   });
@@ -65,7 +65,7 @@ describe('SC3 resolvePermissionMode (2-layer autoApproval)', () => {
     expect(resolve(svc, { autoApproval: false, permissionMode: 'full' })).toBe('ask');
   });
 
-  it('both enabled → per-run override wins', () => {
+  it('both enabled â†’ per-run override wins', () => {
     const svc = makeAgentService({
       envAutoApproval: true,
       liveSettings: { autoApproval: true, permissionMode: 'ask' },
@@ -74,12 +74,12 @@ describe('SC3 resolvePermissionMode (2-layer autoApproval)', () => {
     expect(resolve(svc, { autoApproval: true, permissionMode: 'full' }, 'edit')).toBe('edit');
   });
 
-  it('both enabled, no override → saved permissionMode', () => {
+  it('both enabled, no override â†’ saved permissionMode', () => {
     const svc = makeAgentService({ envAutoApproval: true });
     expect(resolve(svc, { autoApproval: true, permissionMode: 'edit' })).toBe('edit');
   });
 
-  it('both enabled, no override, no permissionMode → ask', () => {
+  it('both enabled, no override, no permissionMode â†’ ask', () => {
     const svc = makeAgentService({ envAutoApproval: true });
     expect(resolve(svc, { autoApproval: true })).toBe('ask');
     expect(resolve(svc, undefined)).toBe('ask');
@@ -122,7 +122,7 @@ describe('SC3 evictOldestKernel reads maxKernelCacheSize live', () => {
     expect(kernels.has('old')).toBe(false);
   });
 
-  it('raises the limit without a restart — a settings edit is enough', () => {
+  it('raises the limit without a restart â€” a settings edit is enough', () => {
     const svc = makeWithKernels(5, [
       ['a', 1],
       ['b', 2],
@@ -209,5 +209,73 @@ describe('sendRunInput ack semantics (VNT-104)', () => {
     await expect(
       svc.sendRunInput({ sessionId: 'sess-1', message: 'steer' }),
     ).resolves.toEqual({ queued: true, runId: 'run-7', status: 'queued' });
+  });
+});
+
+describe('promoteStaleSteeringInputs', () => {
+  function makeService(messages: Array<Record<string, unknown>>) {
+    const svc = Object.create(AgentService.prototype) as AgentService;
+    const updateMessage = jest.fn().mockResolvedValue(undefined);
+    (svc as unknown as { sessionStore: unknown }).sessionStore = {
+      listMessages: jest.fn().mockResolvedValue(messages),
+      updateMessage,
+    };
+    (svc as unknown as { logger: { warn: jest.Mock } }).logger = { warn: jest.fn() };
+    return { svc, updateMessage };
+  }
+
+  function promote(svc: AgentService): Promise<void> {
+    return (
+      svc as unknown as { promoteStaleSteeringInputs(sessionId: string): Promise<void> }
+    ).promoteStaleSteeringInputs('s1');
+  }
+
+  it('promotes only admitted-but-unpromoted steering inputs', async () => {
+    const { svc, updateMessage } = makeService([
+      { id: 'm1', admittedSeq: 1, promotedSeq: 1 },
+      { id: 'm2', admittedSeq: 2 },
+      { id: 'm3', admittedSeq: 3, promotedSeq: 2 },
+      { id: 'm4' },
+    ]);
+
+    await promote(svc);
+
+    expect(updateMessage).toHaveBeenCalledTimes(2);
+    expect(updateMessage).toHaveBeenNthCalledWith(1, 's1', 'm2', { promotedSeq: 2 });
+    expect(updateMessage).toHaveBeenNthCalledWith(2, 's1', 'm3', { promotedSeq: 3 });
+  });
+
+  it('never blocks a run when the store update fails', async () => {
+    const svc = Object.create(AgentService.prototype) as AgentService;
+    (svc as unknown as { sessionStore: unknown }).sessionStore = {
+      listMessages: jest.fn().mockRejectedValue(new Error('db down')),
+      updateMessage: jest.fn(),
+    };
+    const warn = jest.fn();
+    (svc as unknown as { logger: { warn: jest.Mock } }).logger = { warn };
+
+    await expect(promote(svc)).resolves.toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('db down'));
+  });
+});
+
+describe('kernel settings hash', () => {
+  function hash(settings: Partial<KernelSettings>): string {
+    const svc = makeAgentService({});
+    return (
+      svc as unknown as {
+        getSettingsHash(s?: Partial<KernelSettings>): string;
+      }
+    ).getSettingsHash(settings);
+  }
+
+  it('changes when elicitTimeoutMs changes (stepTimeout is derived from it)', () => {
+    const base: Partial<KernelSettings> = { stepTimeout: 120_000, elicitTimeoutMs: 300_000 };
+    expect(hash({ ...base, elicitTimeoutMs: 600_000 })).not.toBe(hash(base));
+  });
+
+  it('is stable for unrelated live-read settings such as maxKernelCacheSize', () => {
+    const base: Partial<KernelSettings> = { maxSteps: 30, maxKernelCacheSize: 50 };
+    expect(hash({ ...base, maxKernelCacheSize: 10 })).toBe(hash(base));
   });
 });

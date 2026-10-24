@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { v4 as uuid } from 'uuid';
+import type { McpGovernanceConfig } from '@vinhnt-sdk/mcp';
 import {
   JsonConfigStore,
   type McpServerJsonConfig,
@@ -35,6 +36,9 @@ export class McpServerRepository {
     args?: string[];
     url?: string;
     env?: Record<string, string>;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    governance?: McpGovernanceConfig;
     isEnabled?: boolean;
   }) {
     const now = new Date().toISOString();
@@ -46,6 +50,9 @@ export class McpServerRepository {
       args: data.args ?? null,
       url: data.url ?? null,
       env: data.env ?? {},
+      headers: data.headers ?? null,
+      timeoutMs: data.timeoutMs ?? null,
+      governance: data.governance ?? null,
       isEnabled: data.isEnabled ?? true,
       toolCount: 0,
       lastConnectedAt: null,
@@ -62,6 +69,9 @@ export class McpServerRepository {
     args?: string[];
     url?: string;
     env?: Record<string, string>;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    governance?: McpGovernanceConfig | null;
     isEnabled?: boolean;
     toolCount?: number;
     lastConnectedAt?: string;
@@ -75,6 +85,9 @@ export class McpServerRepository {
     if (data.args !== undefined) updateData.args = data.args;
     if (data.url !== undefined) updateData.url = data.url;
     if (data.env !== undefined) updateData.env = data.env;
+    if (data.headers !== undefined) updateData.headers = data.headers;
+    if (data.timeoutMs !== undefined) updateData.timeoutMs = data.timeoutMs;
+    if (data.governance !== undefined) updateData.governance = data.governance;
     if (data.isEnabled !== undefined) updateData.isEnabled = data.isEnabled;
     if (data.toolCount !== undefined) updateData.toolCount = data.toolCount;
     if (data.lastConnectedAt !== undefined) updateData.lastConnectedAt = data.lastConnectedAt;

@@ -33,8 +33,8 @@ async function bootstrap() {
     prefix: 'v',
   });
 
-  app.useBodyParser('json', { limit: '1mb' });
-  app.useBodyParser('urlencoded', { extended: true, limit: '1mb' });
+  app.useBodyParser('json', { limit: '25mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '25mb' });
 
   if (configService.get<string>('app.apiDocument') === 'true') {
     createSwaggerDocument(app);

@@ -127,4 +127,20 @@ describe('SessionElicitationStore', () => {
 
     expect(store.pendingRequests(undefined, 'session-1')).toEqual([]);
   });
+
+  it('rehydrates an orphaned elicitation and replays its reply on resume', async () => {
+    const store = new SessionElicitationStore();
+    store.rehydrate([{ id: 'req-1', payload: request() }]);
+
+    expect(store.pendingRequests('run-1')).toEqual([
+      expect.objectContaining({ requestId: 'req-1' }),
+    ]);
+    store.resolveRequest('req-1', { action: 'accept', content: { name: 'Ada' } });
+    expect(store.pendingRequests()).toEqual([]);
+
+    await expect(store.awaitReply(request({ requestId: 'req-2' }))).resolves.toEqual({
+      action: 'accept',
+      content: { name: 'Ada' },
+    });
+  });
 });

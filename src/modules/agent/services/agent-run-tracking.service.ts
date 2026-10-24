@@ -95,6 +95,8 @@ export class AgentRunTrackingService implements OnApplicationBootstrap {
   private readonly runToolCounts = new Map<string, number>();
   /** runId → usage facts from token.counted / model.cost / run.completed events. */
   private readonly runUsageAccums = new Map<string, RunUsageAccum>();
+  /** Sub-agent runs observed through the bus (parentRunId present). */
+  private readonly childRunIds = new Set<string>();
 
   constructor(
     private readonly agentRunRepository: AgentRunRepository,
@@ -103,17 +105,18 @@ export class AgentRunTrackingService implements OnApplicationBootstrap {
 
   /**
    * Boot reconciliation: no run can be live before the app serves traffic, so
-   * any row still 'running' is a crash remnant. Close the runs and their tool
-   * rows so the UI never shows a permanently spinning step.
+   * any row still 'running' is a crash remnant. Keep agent runs resumable
+   * ('interrupted') while closing their tool rows so the timeline stops
+   * spinning.
    */
   onApplicationBootstrap(): void {
     try {
       const running = this.agentRunRepository.findRunning();
       if (running.length === 0) return;
-      this.agentRunRepository.failAllRunning();
+      this.agentRunRepository.interruptAllRunning();
       this.toolExecutionRepository.failAllRunning();
       this.logger.warn(
-        `Reconciled ${running.length} orphan run(s) left 'running' after restart`,
+        `Marked ${running.length} orphan run(s) interrupted after restart; resumable via /agent/resume`,
       );
     } catch (error) {
       this.logger.warn(`Boot run reconciliation failed: ${error}`);
@@ -142,7 +145,7 @@ export class AgentRunTrackingService implements OnApplicationBootstrap {
   }
 
   /** Full persisted row for a run (for resume validation). */
-  getRunRow(runId: string): { id: string; sessionId: string | null; status: string | null; model?: string | null; provider?: string | null } | undefined {
+  getRunRow(runId: string): { id: string; sessionId: string | null; status: string | null; startedAt?: string | null; model?: string | null; provider?: string | null; toolCallsCount?: number | null } | undefined {
     try {
       return this.agentRunRepository.findById(runId);
     } catch (error) {
@@ -161,18 +164,55 @@ export class AgentRunTrackingService implements OnApplicationBootstrap {
     }
   }
 
+  /** Latest interrupted run for a session, if it can still be resumed. */
+  findInterruptedRunForSession(
+    sessionId: string,
+  ): { id: string; sessionId: string | null; status: string | null; startedAt?: string | null; model?: string | null; provider?: string | null } | undefined {
+    try {
+      return this.agentRunRepository.findInterruptedBySessionId(sessionId);
+    } catch (error) {
+      this.logger.warn(`Failed to find interrupted run for ${sessionId}: ${error}`);
+      return undefined;
+    }
+  }
+
+  /** Flip an interrupted run back to 'running' before resuming its kernel. */
+  markRunRunning(runId: string): void {
+    try {
+      this.agentRunRepository.markRunning(runId);
+    } catch (error) {
+      this.logger.warn(`Failed to mark run ${runId} running: ${error}`);
+    }
+  }
+
+  /** Clear older interrupted runs when a fresh run starts in the session. */
+  dismissInterruptedRuns(sessionId: string): void {
+    try {
+      this.agentRunRepository.dismissInterruptedForSession(sessionId);
+    } catch (error) {
+      this.logger.warn(`Failed to dismiss interrupted runs for ${sessionId}: ${error}`);
+    }
+  }
+
   startRun(data: {
     runId: string;
     sessionId: string;
+    parentRunId?: string;
+    agentId?: string;
+    traceId?: string;
     model?: string;
     provider?: string;
     triggerType?: string;
   }): void {
     try {
+      this.dismissInterruptedRuns(data.sessionId);
       this.runSessions.set(data.runId, data.sessionId);
       this.agentRunRepository.create({
         id: data.runId,
         sessionId: data.sessionId,
+        parentRunId: data.parentRunId,
+        agentId: data.agentId,
+        traceId: data.traceId,
         status: 'running',
         triggerType: data.triggerType || 'http',
         model: data.model,
@@ -182,6 +222,66 @@ export class AgentRunTrackingService implements OnApplicationBootstrap {
       this.logger.debug(`Agent run started: ${data.runId}`);
     } catch (error) {
       this.logger.warn(`Failed to track run start: ${error}`);
+    }
+  }
+
+  /**
+   * Persist a sub-agent run discovered from `run.started`. Top-level runs are
+   * created by AgentService before the kernel emits; children only exist on the
+   * bus, so this is the writer that makes the Agent tree durable.
+   */
+  startChildRun(data: {
+    runId: string;
+    sessionId?: string;
+    parentRunId: string;
+    agentId?: string;
+    traceId?: string;
+    model?: string;
+    provider?: string;
+    /** P1.1 execution contract; persisted as agent_runs.metadata.subAgent. */
+    subAgent?: Record<string, unknown>;
+  }): void {
+    if (!data.sessionId) {
+      this.logger.warn(`Skipping child run ${data.runId}: missing sessionId`);
+      return;
+    }
+    try {
+      this.runSessions.set(data.runId, data.sessionId);
+      this.agentRunRepository.createIfAbsent({
+        id: data.runId,
+        sessionId: data.sessionId,
+        parentRunId: data.parentRunId,
+        agentId: data.agentId,
+        traceId: data.traceId,
+        status: 'running',
+        triggerType: 'subagent',
+        model: data.model,
+        provider: data.provider,
+        startedAt: new Date().toISOString(),
+        ...(data.subAgent ? { metadata: { subAgent: data.subAgent } } : {}),
+      });
+      this.childRunIds.add(data.runId);
+      this.logger.debug(`Child run started: ${data.runId} parent=${data.parentRunId}`);
+    } catch (error) {
+      this.logger.warn(`Failed to track child run start: ${error}`);
+    }
+  }
+
+  /** Complete a sub-agent row created by {@link startChildRun}. */
+  completeChildRun(data: {
+    runId: string;
+    result?: unknown;
+    status?: 'succeeded' | 'failed' | 'cancelled';
+    errorMessage?: string;
+    stopReason?: string;
+  }): boolean {
+    if (!this.childRunIds.has(data.runId)) return false;
+    try {
+      this.completeRunFromResult(data);
+      this.logger.debug(`Child run completed: ${data.runId}`);
+      return true;
+    } finally {
+      this.childRunIds.delete(data.runId);
     }
   }
 
@@ -428,6 +528,16 @@ export class AgentRunTrackingService implements OnApplicationBootstrap {
   /** Tool invocations observed so far for a run (undefined if unknown). */
   getToolCallsCount(runId: string): number | undefined {
     return this.runToolCounts.get(runId);
+  }
+
+  /**
+   * Seed the in-memory tool counter from the persisted row before resuming.
+   * Without this, a resumed run that executes tools reports only the calls made
+   * after the restart and overwrites the pre-crash count with a smaller value.
+   */
+  seedToolCallsCount(runId: string, count?: number | null): void {
+    if (!count || count < 1) return;
+    this.runToolCounts.set(runId, count);
   }
 
   startToolExecution(data: {
