@@ -42,6 +42,9 @@ importers:
       '@vinhnt-sdk/core':
         specifier: ^0.22.0
         version: 0.22.0
+      '@vinhnt-sdk/durable-state':
+        specifier: file:../vinhnt-sdk/packages/durable-state
+        version: file:../vinhnt-sdk/packages/durable-state(@vinhnt-sdk/session@0.22.0)
       '@vinhnt-sdk/event':
         specifier: ^0.22.0
         version: 0.22.0
@@ -1826,6 +1829,12 @@ packages:
   '@vinhnt-sdk/core@0.22.0':
     resolution: {integrity: sha512-wHqtSb5wU1p2LZTif0YF+mXg0Kw3D2LL4xMcsOxnutXxVy/0pBNenvOI6j9Ey/wGYBjV0nXld86L8OQATrPAJw==}
     engines: {node: '>=20'}
+
+  '@vinhnt-sdk/durable-state@file:../vinhnt-sdk/packages/durable-state':
+    resolution: {directory: ../vinhnt-sdk/packages/durable-state, type: directory}
+    engines: {node: '>=20.0.0'}
+    peerDependencies:
+      '@vinhnt-sdk/session': workspace:*
 
   '@vinhnt-sdk/event@0.22.0':
     resolution: {integrity: sha512-/h8i8D3VFsjC7cDRTP49W1Gc30UpaXqo8I5P6FVc2iTMI0je/CvIXwGzyYUGg52+r78gTPLG9fg2gOf2S7+LDg==}
@@ -5787,6 +5796,11 @@ snapshots:
       '@vinhnt-sdk/trace': 0.22.0
       '@vinhnt-sdk/workflow': 0.22.0
       zod: 4.6.7
+
+  '@vinhnt-sdk/durable-state@file:../vinhnt-sdk/packages/durable-state(@vinhnt-sdk/session@0.22.0)':
+    dependencies:
+      '@vinhnt-sdk/schema': 0.22.0
+      '@vinhnt-sdk/session': 0.22.0
 
   '@vinhnt-sdk/event@0.22.0':
     dependencies:

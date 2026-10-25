@@ -12,6 +12,7 @@ import {
   AgentSettingsService,
   AgentOtlpService,
   AttachmentService,
+  DurableStateService,
 } from './services';
 import { AgentRunTrackingService } from './services/agent-run-tracking.service';
 import { AgentRunRepository } from './repositories/agent-run.repository';
@@ -42,6 +43,7 @@ import { SessionRepository } from '@/modules/session/repositories/session.reposi
     HitlRequestRepository,
     ToolExecutionRepository,
     SessionRepository,
+    DurableStateService,
   ],
   exports: [AgentService, AgentToolkit, AgentSettingsService, AgentRunTrackingService, ProjectPathModule],
 })
