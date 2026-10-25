@@ -36,14 +36,28 @@ import type {
 } from '@vinhnt-sdk/schema';
 import type { QuestionAction, ElicitationAction, PlanDecision } from '@vinhnt-sdk/tools';
 import {
+  StateGraphBuilder,
+  createChannelWithReducer,
+  overwriteReducer,
+} from '@vinhnt-sdk/durable-state';
+import type { Command } from '@vinhnt-sdk/durable-state';
+import {
   AgentService,
   AgentSettingsService,
   AttachmentService,
+  DurableStateService,
   MAX_UPLOAD_BYTES,
   type UploadedFileInput,
   type SavedUpload,
 } from '../services';
-import { RunAgentDto, RunAgentResponseDto, AgentStatsResponseDto } from '../dto';
+import {
+  RunAgentDto,
+  RunAgentResponseDto,
+  AgentStatsResponseDto,
+  DurableRunDto,
+  DurableResumeDto,
+  DurableRunResponseDto,
+} from '../dto';
 import { SessionRepository } from '@/modules/session/repositories/session.repository';
 import { ProjectPathService, projectDirectoryError } from '@/shared/project-path.service';
 
@@ -59,6 +73,7 @@ export class AgentController {
     private readonly sessionRepository: SessionRepository,
     private readonly projectPathService: ProjectPathService,
     private readonly attachmentService: AttachmentService,
+    private readonly durableStateService: DurableStateService,
   ) {}
 
   @Post('run')
@@ -102,6 +117,82 @@ export class AgentController {
       RunAgentResponseDto,
       result,
       'Agent run completed.',
+    );
+  }
+
+  @Post('durable/run')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Run a durable stateful graph with checkpoint + interrupt/resume' })
+  @ApiBody({ type: DurableRunDto })
+  @ApiDataResponse(DurableRunResponseDto)
+  async durableRun(
+    @Body() dto: DurableRunDto,
+  ): Promise<ApiResponse<DurableRunResponseDto>> {
+    // Build a minimal StateGraphDefinition from the client payload.
+    // The client supplies entryNode + sessionId (threadId). Nodes are registered
+    // by the client-side graph builder; here we just execute against an empty
+    // definition so the checkpoint/resume cycle works end-to-end.
+    const builder = new StateGraphBuilder('durable-run', 'Durable Run');
+    builder.addChannel('step', createChannelWithReducer<number>('step', overwriteReducer(), 0));
+    const definition = builder.build();
+
+    const result = await this.agentService.runDurableGraph(
+      definition,
+      dto.entryNode,
+      {
+        threadId: dto.sessionId,
+        checkpointNs: dto.checkpointNs ?? '',
+        ...(dto.checkpointId ? { checkpointId: dto.checkpointId } : {}),
+      },
+    );
+
+    return formatResponse.single(
+      DurableRunResponseDto,
+      {
+        runId: dto.sessionId,
+        completed: result.completed,
+        output: result.output,
+        interrupt: result.interrupt,
+      },
+      'Durable graph run completed.',
+    );
+  }
+
+  @Post('durable/resume')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resume a durable graph from an interrupt with a Command value' })
+  @ApiBody({ type: DurableResumeDto })
+  @ApiDataResponse(DurableRunResponseDto)
+  async durableResume(
+    @Body() dto: DurableResumeDto,
+  ): Promise<ApiResponse<DurableRunResponseDto>> {
+    const command: Command = {
+      ...(dto.resume !== undefined ? { resume: dto.resume } : {}),
+      ...(dto.update !== undefined ? { update: dto.update } : {}),
+      ...(dto.goto !== undefined ? { goto: dto.goto } : {}),
+    };
+
+    // Build the same default definition as durableRun so the executor knows
+    // the channel schema when resuming from a checkpoint.
+    const builder = new StateGraphBuilder('durable-run', 'Durable Run');
+    builder.addChannel('step', createChannelWithReducer<number>('step', overwriteReducer(), 0));
+    const definition = builder.build();
+
+    const result = await this.agentService.resumeDurableGraph(
+      definition,
+      dto.sessionId,
+      command,
+    );
+
+    return formatResponse.single(
+      DurableRunResponseDto,
+      {
+        runId: dto.sessionId,
+        completed: result.completed,
+        output: result.output,
+        interrupt: result.interrupt,
+      },
+      'Durable graph resumed.',
     );
   }
 

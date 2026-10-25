@@ -10,6 +10,8 @@ import {
   type StateGraphDefinition,
   type GraphConfig,
   type StateSnapshot,
+  type StepResult,
+  type Command,
 } from '@vinhnt-sdk/durable-state';
 import { SqliteRunEventStore } from '@/infrastructure/storage/sqlite-run-event-store';
 import { SqliteSessionStore } from '@/infrastructure/storage/sqlite-session-store';
@@ -128,5 +130,18 @@ export class DurableStateService {
       );
       return null;
     }
+  }
+
+  /**
+   * Resume a durable graph from an interrupt with a Command value.
+   * Creates a fresh executor from the checkpointer and resumes execution.
+   */
+  async resume(
+    definition: StateGraphDefinition,
+    threadId: string,
+    command: Command,
+  ): Promise<StepResult> {
+    const executor = this.createExecutor(definition);
+    return executor.resume({ threadId, checkpointNs: '' }, command);
   }
 }

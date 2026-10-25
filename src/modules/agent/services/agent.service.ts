@@ -60,6 +60,13 @@ import {
 import { AgentKnowledgeService, type MemoryOwnerScope } from '@/modules/knowledge/services/agent-knowledge.service';
 import { extractActualErrorMessage } from '@/shared/error-utils';
 import { collectHandoffToolIds, KERNEL_ONLY_SYSTEM_TOOL_IDS, resolveSystemToolIds, withSystemTools } from '@/shared/tool-selection';
+import { DurableStateService } from './durable-state.service';
+import type {
+  StateGraphDefinition,
+  GraphConfig,
+  StepResult,
+  Command,
+} from '@vinhnt-sdk/durable-state';
 import { KernelSettings, AgentSettingsService } from './agent-settings.service';
 
 /**
@@ -221,6 +228,7 @@ export class AgentService implements OnModuleInit {
     private readonly knowledgeService: AgentKnowledgeService,
     private readonly settingsService: AgentSettingsService,
     private readonly attachmentService: AttachmentService = new AttachmentService(),
+    private readonly durableStateService: DurableStateService,
   ) {
     this.pluginManager = new ToolkitPluginManager({
       list: () =>
@@ -1548,6 +1556,23 @@ private getSettingsHash(settings?: Partial<KernelSettings>): string {
     } finally {
       this.agentToolkit.cleanupRun(runId);
     }
+  }
+
+  async runDurableGraph(
+    definition: StateGraphDefinition,
+    entryNode: string,
+    config: GraphConfig,
+  ): Promise<StepResult> {
+    const executor = this.durableStateService.createExecutor(definition);
+    return executor.run(entryNode, config);
+  }
+
+  async resumeDurableGraph(
+    definition: StateGraphDefinition,
+    threadId: string,
+    command: Command,
+  ): Promise<StepResult> {
+    return this.durableStateService.resume(definition, threadId, command);
   }
 
   async getSessionMessages(sessionId: string) {
