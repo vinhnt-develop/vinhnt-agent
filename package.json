@@ -51,7 +51,7 @@
     "@vinhnt-sdk/security": "^0.4.2",
     "@vinhnt-sdk/session": "^0.22.0",
     "@vinhnt-sdk/step-executor": "^0.22.0",
-    "@vinhnt-sdk/tools": "^0.22.0",
+    "@vinhnt-sdk/tools": "^0.23.1",
     "@vinhnt-sdk/trace": "^0.22.0",
     "@vinhnt-sdk/durable-state": "file:../vinhnt-sdk/packages/durable-state",
     "better-sqlite3": "^13.0.3",
